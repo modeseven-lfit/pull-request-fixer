@@ -12,15 +12,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from .github_client import GitHubClient
     from .progress_tracker import ProgressTracker
 
-from .graphql_queries import ORG_REPOS_ONLY, REPO_OPEN_PRS_PAGE
+from .graphql_queries import (
+    ORG_REPOS_ONLY,
+    ORG_REPOS_WITH_PRS,
+    REPO_OPEN_PRS_PAGE,
+)
 
 # GitHub API tuning defaults - optimized for performance and rate limit compliance
 # These match dependamerge's proven values
@@ -32,7 +36,7 @@ DEFAULT_CONTEXTS_PAGE_SIZE = 20  # Status contexts per pull request
 
 class PRScanner:
     """Scanner for finding pull requests across GitHub organizations.
-    
+
     This scanner uses GraphQL to efficiently query GitHub organizations for
     pull requests. It supports:
     - Parallel processing with bounded concurrency
@@ -82,14 +86,23 @@ class PRScanner:
             Tuples of (owner, repo_name, pr_data) where pr_data is a dict
             containing the PR information from the GitHub API
         """
-        self.logger.info(f"Starting scan of organization: {organization}")
+        self.logger.debug(f"Starting scan of organization: {organization}")
 
         # First pass: count repositories for progress tracking
         total_repos = await self._count_org_repositories(organization)
-        if self.progress_tracker:
+        if self.progress_tracker and total_repos > 0:
             self.progress_tracker.update_total_repositories(total_repos)
+            # Start the progress tracker now that we have the count
+            self.progress_tracker.start()
 
         self.logger.debug(f"Found {total_repos} repositories in {organization}")
+
+        # If no repos found or error occurred, nothing to scan
+        if total_repos == 0:
+            self.logger.warning(
+                f"No repositories found in organization: {organization}"
+            )
+            return
 
         # Second pass: scan repositories with bounded parallelism
         async for owner, repo_name, pr_data in self._scan_repositories(
@@ -109,19 +122,33 @@ class PRScanner:
         try:
             result = await self.client.graphql(
                 ORG_REPOS_ONLY,
-                variables={"orgName": organization, "reposPerPage": 100},
+                variables={"org": organization, "reposCursor": None},
             )
-            org_data = result.get("data", {}).get("organization", {})
-            if not org_data:
-                self.logger.warning(f"No data returned for organization: {organization}")
+
+            # Check if organization data exists
+            org_data = result.get("organization")
+            if org_data is None:
+                self.logger.error(
+                    f"Organization '{organization}' not found or token lacks access.\n"
+                    f"  Please verify:\n"
+                    f"  1. Organization name is correct (case-sensitive)\n"
+                    f"  2. Token has 'read:org' scope\n"
+                    f"  3. Token user has access to the organization\n"
+                    f"  4. Organization exists on GitHub"
+                )
                 return 0
 
             repos = org_data.get("repositories", {})
-            total = repos.get("totalCount", 0)
-            self.logger.debug(f"Organization {organization} has {total} repositories")
+            total: int = repos.get("totalCount", 0)
+            self.logger.debug(
+                f"Organization {organization} has {total} repositories"
+            )
             return total
         except Exception as e:
             self.logger.error(f"Error counting repositories: {e}")
+            import traceback
+
+            self.logger.debug(f"Traceback: {traceback.format_exc()}")
             return 0
 
     async def _scan_repositories(
@@ -146,7 +173,9 @@ class PRScanner:
         async def process_repository(repo_node: dict[str, Any]) -> None:
             """Process a single repository and add PRs to queue."""
             async with self.repo_semaphore:
-                repo_full_name = repo_node.get("nameWithOwner", "unknown/unknown")
+                repo_full_name = repo_node.get(
+                    "nameWithOwner", "unknown/unknown"
+                )
                 if self.progress_tracker:
                     self.progress_tracker.start_repository(repo_full_name)
 
@@ -155,9 +184,10 @@ class PRScanner:
                     pr_count = 0
 
                     # Fetch first page of PRs
-                    first_nodes, page_info = await self._fetch_repo_prs_first_page(
-                        owner, repo_name
-                    )
+                    (
+                        first_nodes,
+                        page_info,
+                    ) = await self._fetch_repo_prs_first_page(owner, repo_name)
 
                     # Process first page PRs
                     for pr_node in first_nodes:
@@ -185,17 +215,19 @@ class PRScanner:
                     )
 
                 except Exception as e:
-                    self.logger.error(f"Error scanning repository {repo_full_name}: {e}")
+                    self.logger.error(
+                        f"Error scanning repository {repo_full_name}: {e}"
+                    )
                     if self.progress_tracker:
                         self.progress_tracker.add_error()
 
         async def producer() -> None:
             """Producer coroutine that scans repositories."""
-            tasks: list[asyncio.Task] = []
+            tasks: list[asyncio.Task[None]] = []
             try:
-                async for repo_node in self._iter_org_repositories_with_open_prs(
-                    organization
-                ):
+                async for (
+                    repo_node
+                ) in self._iter_org_repositories_with_open_prs(organization):
                     task = asyncio.create_task(process_repository(repo_node))
                     tasks.append(task)
 
@@ -237,16 +269,17 @@ class PRScanner:
 
         while has_next_page:
             variables: dict[str, Any] = {
-                "orgName": organization,
-                "reposPerPage": 50,
-                "prsPerPage": 1,  # Just need to know if there are PRs
+                "org": organization,
+                "cursor": end_cursor,
+                "prsPageSize": 1,  # Just need to know if there are PRs
+                "contextsPageSize": 0,  # Don't need status contexts
             }
-            if end_cursor:
-                variables["repoCursor"] = end_cursor
 
             try:
-                result = await self.client.graphql(REPO_OPEN_PRS_PAGE, variables=variables)
-                org_data = result.get("data", {}).get("organization", {})
+                result = await self.client.graphql(
+                    ORG_REPOS_WITH_PRS, variables=variables
+                )
+                org_data = result.get("organization", {})
                 if not org_data:
                     break
 
@@ -280,35 +313,32 @@ class PRScanner:
             Tuple of (PR nodes list, page info dict)
         """
         variables = {
-            "orgName": owner,
-            "reposPerPage": 1,
-            "prsPerPage": DEFAULT_PRS_PAGE_SIZE,
+            "owner": owner,
+            "name": repo_name,
+            "prsCursor": None,
+            "prsPageSize": DEFAULT_PRS_PAGE_SIZE,
+            "filesPageSize": DEFAULT_FILES_PAGE_SIZE,
+            "commentsPageSize": DEFAULT_COMMENTS_PAGE_SIZE,
+            "contextsPageSize": DEFAULT_CONTEXTS_PAGE_SIZE,
         }
 
         try:
-            result = await self.client.graphql(REPO_OPEN_PRS_PAGE, variables=variables)
-            org_data = result.get("data", {}).get("organization", {})
-            if not org_data:
+            result = await self.client.graphql(
+                REPO_OPEN_PRS_PAGE, variables=variables
+            )
+            repo_data = result.get("repository", {})
+            if not repo_data:
                 return [], {}
 
-            repos = org_data.get("repositories", {})
-            nodes = repos.get("nodes", [])
-
-            if not nodes:
-                return [], {}
-
-            # Find our repository
-            for repo_node in nodes:
-                if repo_node.get("name") == repo_name:
-                    prs = repo_node.get("pullRequests", {})
-                    pr_nodes = prs.get("nodes", [])
-                    page_info = prs.get("pageInfo", {})
-                    return pr_nodes, page_info
-
-            return [], {}
+            prs = repo_data.get("pullRequests", {})
+            pr_nodes = prs.get("nodes", [])
+            page_info = prs.get("pageInfo", {})
+            return pr_nodes, page_info
 
         except Exception as e:
-            self.logger.error(f"Error fetching PRs for {owner}/{repo_name}: {e}")
+            self.logger.error(
+                f"Error fetching PRs for {owner}/{repo_name}: {e}"
+            )
             return [], {}
 
     async def _iter_repo_open_prs_pages(
@@ -330,42 +360,32 @@ class PRScanner:
         while has_next_page:
             async with self.page_semaphore:
                 variables = {
-                    "orgName": owner,
-                    "reposPerPage": 1,
-                    "prsPerPage": DEFAULT_PRS_PAGE_SIZE,
-                    "prCursor": cursor,
+                    "owner": owner,
+                    "name": repo_name,
+                    "prsCursor": cursor,
+                    "prsPageSize": DEFAULT_PRS_PAGE_SIZE,
+                    "filesPageSize": DEFAULT_FILES_PAGE_SIZE,
+                    "commentsPageSize": DEFAULT_COMMENTS_PAGE_SIZE,
+                    "contextsPageSize": DEFAULT_CONTEXTS_PAGE_SIZE,
                 }
 
                 try:
                     result = await self.client.graphql(
                         REPO_OPEN_PRS_PAGE, variables=variables
                     )
-                    org_data = result.get("data", {}).get("organization", {})
-                    if not org_data:
+                    repo_data = result.get("repository", {})
+                    if not repo_data:
                         break
 
-                    repos = org_data.get("repositories", {})
-                    nodes = repos.get("nodes", [])
+                    prs = repo_data.get("pullRequests", {})
+                    pr_nodes = prs.get("nodes", [])
 
-                    if not nodes:
-                        break
+                    for pr_node in pr_nodes:
+                        yield pr_node
 
-                    # Find our repository
-                    for repo_node in nodes:
-                        if repo_node.get("name") == repo_name:
-                            prs = repo_node.get("pullRequests", {})
-                            pr_nodes = prs.get("nodes", [])
-
-                            for pr_node in pr_nodes:
-                                yield pr_node
-
-                            page_info = prs.get("pageInfo", {})
-                            has_next_page = page_info.get("hasNextPage", False)
-                            cursor = page_info.get("endCursor")
-                            break
-                    else:
-                        # Repository not found
-                        break
+                    page_info = prs.get("pageInfo", {})
+                    has_next_page = page_info.get("hasNextPage", False)
+                    cursor = page_info.get("endCursor")
 
                 except Exception as e:
                     self.logger.error(
@@ -373,7 +393,9 @@ class PRScanner:
                     )
                     break
 
-    def _should_include_pr(self, pr_node: dict[str, Any], include_drafts: bool) -> bool:
+    def _should_include_pr(
+        self, pr_node: dict[str, Any], include_drafts: bool
+    ) -> bool:
         """Determine if a PR should be included in results.
 
         Args:
@@ -383,9 +405,7 @@ class PRScanner:
         Returns:
             True if PR should be included
         """
-        if not include_drafts and pr_node.get("isDraft", False):
-            return False
-        return True
+        return include_drafts or not pr_node.get("isDraft", False)
 
     @staticmethod
     def _split_owner_repo(full_name: str) -> tuple[str, str]:
