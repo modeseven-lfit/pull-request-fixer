@@ -60,6 +60,36 @@ class GitHubScanResult:
 
 
 @dataclass
+class FileModification:
+    """Information about a file modification."""
+
+    file_path: Path
+    original_content: str
+    modified_content: str
+
+    @property
+    def diff(self) -> str:
+        """Generate a unified diff for the modification."""
+        import difflib
+
+        original_lines = self.original_content.splitlines(keepends=False)
+        modified_lines = self.modified_content.splitlines(keepends=False)
+
+        # Use just the filename for cleaner diff output
+        filename = self.file_path.name
+
+        diff_lines = difflib.unified_diff(
+            original_lines,
+            modified_lines,
+            fromfile=filename,
+            tofile=filename,
+            lineterm="",
+        )
+
+        return "\n".join(diff_lines)
+
+
+@dataclass
 class GitHubFixResult:
     """Result of fixing a PR."""
 
@@ -67,4 +97,5 @@ class GitHubFixResult:
     success: bool
     message: str
     files_modified: list[Path] = field(default_factory=list)
+    file_modifications: list[FileModification] = field(default_factory=list)
     error: str | None = None
