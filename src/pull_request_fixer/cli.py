@@ -1572,11 +1572,13 @@ async def create_file_fix_comment(
         lines = [
             "## 🛠️ Pull Request Fixer",
             "",
-            "Automatically fixed files in this pull request:",
+            "**Command run:**",
             "",
             "```bash",
             command,
             "```",
+            "",
+            "**Automatically fixed files in this pull request:**",
             "",
         ]
 
