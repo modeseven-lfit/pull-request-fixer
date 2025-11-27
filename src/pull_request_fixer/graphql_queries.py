@@ -9,6 +9,7 @@ ORG_REPOS_ONLY = """
 query($org: String!, $reposCursor: String) {
   organization(login: $org) {
     repositories(first: 100, after: $reposCursor, orderBy: { field: NAME, direction: ASC }) {
+      totalCount
       pageInfo {
         hasNextPage
         endCursor
@@ -45,6 +46,7 @@ query($org: String!, $cursor: String, $prsPageSize: Int!, $contextsPageSize: Int
           first: $prsPageSize
           orderBy: { field: CREATED_AT, direction: DESC }
         ) {
+          totalCount
           pageInfo {
             hasNextPage
             endCursor
@@ -255,4 +257,54 @@ query($owner: String!, $name: String!, $number: Int!, $contextsPageSize: Int!) {
     }
   }
 }
+"""
+
+# Query to get first commit message for a PR (lightweight)
+PR_FIRST_COMMIT = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      number
+      title
+      commits(first: 1) {
+        nodes {
+          commit {
+            oid
+            message
+            messageHeadline
+            messageBody
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+# Bulk query to get first commit messages for multiple PRs (performance optimized)
+# This uses GraphQL aliases to fetch multiple PRs in a single request
+BULK_PR_COMMITS_TEMPLATE = """
+query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    {pr_queries}
+  }
+}
+"""
+
+# Template for individual PR in bulk query
+PR_COMMIT_FRAGMENT = """
+    pr{number}: pullRequest(number: {number}) {
+      number
+      title
+      commits(first: 1) {
+        nodes {
+          commit {
+            oid
+            message
+            messageHeadline
+            messageBody
+          }
+        }
+      }
+    }
 """

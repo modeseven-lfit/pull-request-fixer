@@ -5,18 +5,24 @@ SPDX-FileCopyrightText: 2025 The Linux Foundation
 
 # 🛠️ Pull Request Fixer
 
-A modern Python tool for automatically fixing pull request titles and bodies across GitHub organizations. Scans for blocked PRs and updates them based on commit messages.
+A modern Python tool for automatically fixing pull request titles and bodies
+across GitHub organizations. Scans for blocked PRs and updates them based on
+commit messages.
 
 ## Features
 
-- **🔍 Organization Scanning**: Scan entire GitHub organizations for blocked pull requests
+- **🔍 Organization Scanning**: Scan entire GitHub organizations for blocked
+  pull requests
 - **✍️ Title Fixing**: Set PR titles to match the first commit's subject line
-- **📝 Body Fixing**: Set PR descriptions to match commit message bodies (excluding trailers)
-- **🚀 Parallel Processing**: Process multiple PRs concurrently for performance
+- **📝 Body Fixing**: Set PR descriptions to match commit message bodies
+  (excluding trailers)
+- **🚀 Parallel Processing**: Process PRs concurrently for
+  performance
 - **🔄 Dry Run Mode**: Preview changes before applying them
 - **📊 Progress Tracking**: Real-time progress updates during scanning
 - **🎯 Smart Parsing**: Automatically removes Git trailers (Signed-off-by, etc.)
-- **💬 PR Comments**: Automatically adds a comment to PRs explaining what was fixed
+- **💬 PR Comments**: Automatically adds a comment to PRs explaining the
+  changes made
 
 ## Installation
 
@@ -54,7 +60,8 @@ pull-request-fixer lfreleng-actions --fix-title --fix-body --dry-run
 pull-request-fixer ORGANIZATION [OPTIONS]
 ```
 
-The organization can be specified as:
+You can specify the organization as:
+
 - Organization name: `myorg`
 - GitHub URL: `https://github.com/myorg`
 - GitHub URL with path: `https://github.com/myorg/`
@@ -68,7 +75,8 @@ Updates the PR title to match the first line (subject) of the first commit messa
 **Example:**
 
 If the first commit message is:
-```
+
+```text
 Fix authentication bug in login handler
 
 This commit addresses an issue where users couldn't
@@ -77,8 +85,9 @@ log in with special characters in passwords.
 Signed-off-by: John Doe <john@example.com>
 ```
 
-The PR title will be set to:
-```
+This sets the PR title to:
+
+```text
 Fix authentication bug in login handler
 ```
 
@@ -86,8 +95,9 @@ Fix authentication bug in login handler
 
 Updates the PR description to match the commit message body, excluding trailers.
 
-Using the same commit message above, the PR body will be set to:
-```
+Using the same commit message above, this sets the PR body to:
+
+```text
 This commit addresses an issue where users couldn't
 log in with special characters in passwords.
 ```
@@ -96,39 +106,47 @@ The `Signed-off-by:` trailer is automatically removed.
 
 ### Common Usage Patterns
 
-**Fix titles only:**
+**Fix titles:**
+
 ```bash
 pull-request-fixer myorg --fix-title
 ```
 
 **Fix both titles and bodies:**
+
 ```bash
 pull-request-fixer myorg --fix-title --fix-body
 ```
 
 **Preview changes (dry run):**
+
 ```bash
 pull-request-fixer myorg --fix-title --fix-body --dry-run
 ```
 
 **Include draft PRs:**
+
 ```bash
 pull-request-fixer myorg --fix-title --include-drafts
 ```
 
 **Use more workers for large organizations:**
+
 ```bash
 pull-request-fixer myorg --fix-title --workers 16
 ```
 
 **Quiet mode for automation:**
+
 ```bash
 pull-request-fixer myorg --fix-title --quiet
 ```
 
 ## PR Comments
 
-When fixes are applied (not in dry-run mode), the tool automatically adds a comment to the pull request explaining what was changed. This provides transparency and helps PR authors understand the automated changes.
+When the tool applies fixes (not in dry-run mode), it automatically adds a
+comment to the PR explaining the changes. This provides transparency and
+helps PR authors understand the automated modifications.
 
 **Example comment:**
 
@@ -143,7 +161,9 @@ Automatically fixed pull request metadata:
 *This fix was automatically applied by [pull-request-fixer](https://github.com/lfit/pull-request-fixer)*
 ```
 
-The comment will only include the items that were actually changed. For example, if only the title was fixed, only that line will appear in the comment.
+The comment includes the items that changed. For
+example, if the title changed, that line will appear in the
+comment.
 
 ## Options
 
@@ -163,8 +183,10 @@ The comment will only include the items that were actually changed. For example,
 
 ## How It Works
 
-1. **Scan Organization**: Uses GitHub's GraphQL API to efficiently find blocked pull requests
-2. **Fetch Commits**: Retrieves the first commit from each PR using the REST API
+1. **Scan Organization**: Uses GitHub's GraphQL API to efficiently find
+   blocked pull requests
+2. **Fetch Commits**: Retrieves the first commit from each PR using the REST
+   API
 3. **Parse Messages**: Extracts commit subject and body, removing trailers
 4. **Apply Changes**: Updates PR titles and/or bodies in parallel
 5. **Report Results**: Shows summary of changes made
@@ -192,7 +214,7 @@ The following Git trailer patterns are automatically removed from PR bodies:
 You need a GitHub personal access token with appropriate permissions:
 
 1. Go to GitHub Settings → Developer settings → Personal access tokens
-2. Generate a new token with `repo` scope (or `public_repo` for public repos only)
+2. Generate a new token with `repo` scope (or `public_repo` for public repos)
 3. Set the token as an environment variable:
 
 ```bash
@@ -214,7 +236,8 @@ pull-request-fixer lfreleng-actions --fix-title
 ```
 
 Output:
-```
+
+```text
 🔍 Scanning organization: lfreleng-actions
 🔧 Will fix: titles
 
@@ -241,10 +264,11 @@ pull-request-fixer myorg --fix-title --fix-body --dry-run
 ```
 
 Output:
-```
+
+```text
 🔍 Scanning organization: myorg
 🔧 Will fix: titles, bodies
-🏃 Dry run mode: no changes will be applied
+🏃 Dry run mode: no changes made
 
 📊 Found 5 blocked PRs to process
 
@@ -268,12 +292,13 @@ pull-request-fixer bigorg --fix-title --fix-body --workers 16 --verbose
 
 ## Performance
 
-- **Parallel Processing**: Multiple PRs processed concurrently
+- **Parallel Processing**: PRs processed concurrently for speed
 - **Efficient Queries**: GraphQL for scanning, REST for updates
 - **Memory Efficient**: Streaming results, no need to load all PRs
 - **Typical Speed**: 2-5 seconds per repository
 
 Example timing for 100 repositories with 50 blocked PRs using 8 workers:
+
 - Organization scan: ~30-60 seconds
 - PR processing: ~20-30 seconds
 - **Total: ~50-90 seconds**
@@ -283,19 +308,23 @@ Example timing for 100 repositories with 50 blocked PRs using 8 workers:
 ### No PRs Found
 
 If the tool reports "No blocked PRs found", this could mean:
+
 - The organization truly has no blocked PRs
 - You may need to adjust the scanner's definition of "blocked"
 
 ### Authentication Errors
 
 If you see authentication errors:
-- Ensure your `GITHUB_TOKEN` is set correctly
+
+Make sure your `GITHUB_TOKEN` environment variable contains a valid token
+
 - Verify the token has `repo` or `public_repo` scope
 - Check that the token hasn't expired
 
 ### Rate Limiting
 
 If you hit rate limits:
+
 - Reduce the number of workers: `--workers 2`
 - Wait for the rate limit to reset (shown in error message)
 - Use a token with higher rate limits
@@ -303,6 +332,7 @@ If you hit rate limits:
 ### Permission Errors
 
 If updates fail:
+
 - Ensure your token has write access to the repositories
 - Check that you're not trying to update PRs in archived repos
 - Verify the PRs are not locked
@@ -335,6 +365,7 @@ pre-commit run --all-files
 ### Code Style
 
 The project uses:
+
 - `ruff` for linting and formatting
 - `mypy` for type checking
 - `pytest` for testing
@@ -356,17 +387,25 @@ Apache-2.0
 
 ## Support
 
-- **Issues**: https://github.com/lfit/pull-request-fixer/issues
-- **Documentation**: https://github.com/lfit/pull-request-fixer/blob/main/IMPLEMENTATION.md
-- **Changelog**: https://github.com/lfit/pull-request-fixer/blob/main/CHANGELOG.md
+- **Issues**:
+  <https://github.com/lfit/pull-request-fixer/issues>
+- **Documentation**:
+  <https://github.com/lfit/pull-request-fixer/blob/main/IMPLEMENTATION.md>
+- **Changelog**:
+  <https://github.com/lfit/pull-request-fixer/blob/main/CHANGELOG.md>
 
 ## Related Projects
 
-- [dependamerge](https://github.com/lfit/dependamerge) - Automatically merge automation PRs
-- [markdown-table-fixer](https://github.com/lfit/markdown-table-fixer) - Fix markdown table formatting
+- [dependamerge](https://github.com/lfit/dependamerge) - Automatically merge
+  automation PRs
+- [markdown-table-fixer](https://github.com/lfit/markdown-table-fixer) - Fix
+  markdown table formatting
 
 ## Acknowledgments
 
-This project was inspired by and uses patterns from:
-- [dependamerge](https://github.com/lfit/dependamerge) for efficient GitHub organization scanning
-- [markdown-table-fixer](https://github.com/lfit/markdown-table-fixer) for the initial codebase structure
+This project uses patterns from:
+
+- [dependamerge](https://github.com/lfit/dependamerge) for efficient GitHub
+  organization scanning
+- [markdown-table-fixer](https://github.com/lfit/markdown-table-fixer) for
+  the initial codebase structure

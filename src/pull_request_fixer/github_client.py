@@ -40,6 +40,54 @@ class GitHubClient:
         """Async context manager exit."""
         pass
 
+    async def validate_token(self) -> tuple[bool, str, list[str]]:
+        """Validate GitHub token and check permissions.
+
+        Returns:
+            Tuple of (is_valid, username, scopes)
+
+        Raises:
+            FileAccessError: If token validation fails
+        """
+        query = """
+        query {
+          viewer {
+            login
+          }
+        }
+        """
+
+        try:
+            result = await self._graphql_request(query)
+            viewer = result.get("viewer", {})
+            username = viewer.get("login", "")
+
+            # Get token scopes from REST API
+            # Note: GitHub Actions tokens may not have access to /user endpoint
+            scopes: list[str] = []
+            try:
+                url = f"{self.base_url}/user"
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.get(url, headers=self.headers)
+                    response.raise_for_status()
+
+                    # Scopes are in the X-OAuth-Scopes header
+                    scopes_header = response.headers.get("X-OAuth-Scopes", "")
+                    scopes = [
+                        s.strip() for s in scopes_header.split(",") if s.strip()
+                    ]
+            except httpx.HTTPStatusError as scope_error:
+                # GitHub Actions tokens may not have user access (403)
+                # This is expected and we can continue without scope info
+                if scope_error.response.status_code != 403:
+                    raise
+
+            return True, username, scopes
+
+        except Exception as e:
+            msg = f"Token validation failed: {e}"
+            raise FileAccessError(msg) from e
+
     @retry(  # type: ignore[misc]
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -105,7 +153,7 @@ class GitHubClient:
             FileAccessError: If request fails
         """
         url = "https://api.github.com/graphql"
-        payload = {"query": query}
+        payload: dict[str, Any] = {"query": query}
         if variables:
             payload["variables"] = variables
 
@@ -117,7 +165,7 @@ class GitHubClient:
                     json=payload,
                 )
                 response.raise_for_status()
-                json_response = response.json()
+                json_response: Any = response.json()
                 result: dict[str, Any] = (
                     json_response if isinstance(json_response, dict) else {}
                 )

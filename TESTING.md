@@ -20,6 +20,7 @@ export GITHUB_TOKEN=ghp_xxxxxxxxxxxxx
 ```
 
 Or use the `--token` flag:
+
 ```bash
 pull-request-fixer TARGET --token ghp_xxxxxxxxxxxxx --fix-title
 ```
@@ -33,13 +34,17 @@ The tool operates in two modes:
 Process a specific pull request by providing its URL.
 
 **Syntax:**
+
 ```bash
 pull-request-fixer https://github.com/OWNER/REPO/pull/NUMBER [OPTIONS]
 ```
 
 **Example:**
+
 ```bash
-pull-request-fixer https://github.com/lfreleng-actions/go-httpbin-action/pull/44 --fix-title
+pull-request-fixer \
+  https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
+  --fix-title
 ```
 
 ### Mode 2: Organization Scanning
@@ -47,11 +52,13 @@ pull-request-fixer https://github.com/lfreleng-actions/go-httpbin-action/pull/44
 Scan an entire organization for blocked pull requests.
 
 **Syntax:**
+
 ```bash
-pull-request-fixer ORGANIZATION [OPTIONS]
+pull-request-fixer PR_URL [OPTIONS]
 ```
 
 **Examples:**
+
 ```bash
 # Organization name
 pull-request-fixer lfreleng-actions --fix-title
@@ -64,32 +71,38 @@ pull-request-fixer https://github.com/lfreleng-actions --fix-title
 
 ### Test 1: Single PR - Title Fix (Dry Run)
 
-**Objective**: Verify the tool can detect title differences and show what it would change.
+**Goal**: Verify the tool can detect title differences and show what it
+would change.
 
 **Command:**
+
 ```bash
-pull-request-fixer https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
+pull-request-fixer \
+  https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
   --fix-title \
   --dry-run
 ```
 
 **Expected Output:**
-```
-🔍 Processing PR: https://github.com/lfreleng-actions/go-httpbin-action/pull/44
+
+```text
+🔍 Processing PR:
+  https://github.com/lfreleng-actions/go-httpbin-action/pull/44
 🔧 Will fix: title
-🏃 Dry run mode: no changes will be applied
+🏃 Dry run mode: no changes made
 
 📥 Fetching PR data...
 
 🔄 Processing: lfreleng-actions/go-httpbin-action#44
    Would update title:
-     From: Chore: Bump lfreleng-actions/draft-release-promote-action from 0.1.2 to 0.1.3
+     From: Chore: Bump lfreleng-actions/...
      To:   Chore: Bump lfreleng-actions/draft-release-promote-action
 
 ✅ [DRY RUN] Would fix this PR
 ```
 
 **Validation:**
+
 - [ ] Tool connects to GitHub API
 - [ ] Tool fetches PR #44 data
 - [ ] Tool fetches first commit message
@@ -101,28 +114,33 @@ pull-request-fixer https://github.com/lfreleng-actions/go-httpbin-action/pull/44
 
 ### Test 2: Single PR - Title Fix (Live)
 
-**Objective**: Actually update the PR title.
+**Goal**: Update the PR title.
 
 **Command:**
+
 ```bash
-pull-request-fixer https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
+pull-request-fixer \
+  https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
   --fix-title
 ```
 
 **Expected Output:**
-```
-🔍 Processing PR: https://github.com/lfreleng-actions/go-httpbin-action/pull/44
+
+```text
+🔍 Processing PR:
+  https://github.com/lfreleng-actions/go-httpbin-action/pull/44
 🔧 Will fix: title
 
 📥 Fetching PR data...
 
 🔄 Processing: lfreleng-actions/go-httpbin-action#44
-   ✅ Updated title: Chore: Bump lfreleng-actions/draft-release-promote-action
+   ✅ Updated title: Chore: Bump lfreleng-actions/...
 
-✅ PR updated successfully
+✅ PR updated
 ```
 
 **Validation:**
+
 - [ ] Tool updates the PR title on GitHub
 - [ ] Tool triggers re-run of failed checks (if any)
 - [ ] Visit PR URL and confirm title changed
@@ -132,31 +150,36 @@ pull-request-fixer https://github.com/lfreleng-actions/go-httpbin-action/pull/44
 
 ### Test 3: Single PR - Body Fix (Dry Run)
 
-**Objective**: Test PR body extraction and trailer removal.
+**Goal**: Test PR body extraction and trailer removal.
 
 **Command:**
+
 ```bash
-pull-request-fixer https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
+pull-request-fixer \
+  https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
   --fix-body \
   --dry-run
 ```
 
 **Expected Output:**
-```
-🔍 Processing PR: https://github.com/lfreleng-actions/go-httpbin-action/pull/44
+
+```text
+🔍 Processing PR:
+  https://github.com/lfreleng-actions/go-httpbin-action/pull/44
 🔧 Will fix: body
-🏃 Dry run mode: no changes will be applied
+🏃 Dry run mode: no changes made
 
 📥 Fetching PR data...
 
 🔄 Processing: lfreleng-actions/go-httpbin-action#44
    Would update body
-     Length: XXX chars
+     Length: 123 chars
 
 ✅ [DRY RUN] Would fix this PR
 ```
 
 **Validation:**
+
 - [ ] Tool extracts commit body
 - [ ] Tool removes trailers (Signed-off-by, etc.)
 - [ ] Tool shows body length
@@ -166,35 +189,40 @@ pull-request-fixer https://github.com/lfreleng-actions/go-httpbin-action/pull/44
 
 ### Test 4: Single PR - Both Title and Body
 
-**Objective**: Fix both title and body in one operation.
+**Goal**: Fix both title and body in one operation.
 
 **Command:**
+
 ```bash
-pull-request-fixer https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
+pull-request-fixer \
+  https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
   --fix-title \
   --fix-body \
   --dry-run
 ```
 
 **Expected Output:**
-```
-🔍 Processing PR: https://github.com/lfreleng-actions/go-httpbin-action/pull/44
+
+```text
+🔍 Processing PR:
+  https://github.com/lfreleng-actions/go-httpbin-action/pull/44
 🔧 Will fix: title, body
-🏃 Dry run mode: no changes will be applied
+🏃 Dry run mode: no changes made
 
 📥 Fetching PR data...
 
 🔄 Processing: lfreleng-actions/go-httpbin-action#44
    Would update title:
-     From: [old title]
-     To:   [new title]
+     From: Chore: Bump lfreleng-actions/...
+     To:   Chore: Bump lfreleng-actions/draft-release-promote-action
    Would update body
-     Length: XXX chars
+     Length: 123 chars
 
 ✅ [DRY RUN] Would fix this PR
 ```
 
 **Validation:**
+
 - [ ] Both title and body detected for update
 - [ ] Changes shown separately
 - [ ] Dry run confirmed
@@ -203,9 +231,10 @@ pull-request-fixer https://github.com/lfreleng-actions/go-httpbin-action/pull/44
 
 ### Test 5: Organization Scan (Dry Run)
 
-**Objective**: Scan entire organization for blocked PRs.
+**Goal**: Scan entire organization for blocked PRs.
 
 **Command:**
+
 ```bash
 pull-request-fixer lfreleng-actions \
   --fix-title \
@@ -214,10 +243,11 @@ pull-request-fixer lfreleng-actions \
 ```
 
 **Expected Output:**
-```
+
+```text
 🔍 Scanning organization: lfreleng-actions
 🔧 Will fix: title
-🏃 Dry run mode: no changes will be applied
+🏃 Dry run mode: no changes made
 
 📊 Found 15 blocked PRs to process
 
@@ -237,19 +267,21 @@ pull-request-fixer lfreleng-actions \
 ```
 
 **Validation:**
+
 - [ ] Tool scans organization using GraphQL
 - [ ] Tool finds blocked PRs
 - [ ] Tool displays all found PRs
 - [ ] Tool processes each PR
-- [ ] Tool reports total that would be fixed
+- [ ] Tool reports total to fix
 
 ---
 
 ### Test 6: Organization Scan (Live, Limited Workers)
 
-**Objective**: Actually fix PRs in organization with controlled concurrency.
+**Goal**: Fix PRs in organization with controlled concurrency.
 
 **Command:**
+
 ```bash
 pull-request-fixer lfreleng-actions \
   --fix-title \
@@ -258,7 +290,8 @@ pull-request-fixer lfreleng-actions \
 ```
 
 **Expected Output:**
-```
+
+```text
 🔍 Scanning organization: lfreleng-actions
 🔧 Will fix: title
 
@@ -278,8 +311,9 @@ pull-request-fixer lfreleng-actions \
 ```
 
 **Validation:**
+
 - [ ] Tool respects worker limit (max 2 concurrent)
-- [ ] Tool updates PRs successfully
+- [ ] Tool updates PRs
 - [ ] Tool triggers re-runs for updated PRs
 - [ ] All PRs processed without errors
 
@@ -287,9 +321,10 @@ pull-request-fixer lfreleng-actions \
 
 ### Test 7: URL Format Variations
 
-**Objective**: Verify all URL formats work correctly.
+**Goal**: Verify all URL formats work as expected.
 
 **Commands:**
+
 ```bash
 # Organization name
 pull-request-fixer lfreleng-actions --fix-title --dry-run
@@ -308,17 +343,19 @@ pull-request-fixer https://github.com/owner/repo/pulls/123 --fix-title --dry-run
 ```
 
 **Validation:**
-- [ ] All formats parsed correctly
-- [ ] Organization mode vs PR mode detected correctly
+
+- [ ] All formats parsed as expected
+- [ ] Organization mode vs PR mode detected as expected
 - [ ] No errors from URL parsing
 
 ---
 
 ### Test 8: Error Handling
 
-**Objective**: Verify graceful error handling.
+**Goal**: Verify error handling.
 
 #### Test 8a: Invalid PR URL
+
 ```bash
 pull-request-fixer https://github.com/invalid/url --fix-title
 ```
@@ -326,13 +363,16 @@ pull-request-fixer https://github.com/invalid/url --fix-title
 **Expected**: Clear error message about invalid URL format
 
 #### Test 8b: Non-existent PR
+
 ```bash
-pull-request-fixer https://github.com/owner/repo/pull/999999 --fix-title
+pull-request-fixer https://github.com/owner/repo/pull/999999 \
+  --fix-title
 ```
 
 **Expected**: Error message about PR not found
 
 #### Test 8c: Missing Token
+
 ```bash
 unset GITHUB_TOKEN
 pull-request-fixer myorg --fix-title
@@ -341,6 +381,7 @@ pull-request-fixer myorg --fix-title
 **Expected**: Error message requesting GitHub token
 
 #### Test 8d: No Fix Options
+
 ```bash
 pull-request-fixer myorg
 ```
@@ -351,10 +392,11 @@ pull-request-fixer myorg
 
 ### Test 9: Commit Message Parsing
 
-**Objective**: Verify trailer removal works correctly.
+**Goal**: Verify trailer removal works as expected.
 
 Create a test PR with commit message:
-```
+
+```text
 Fix authentication bug
 
 This commit fixes an issue where users
@@ -366,36 +408,40 @@ Co-authored-by: Jane Doe <jane@example.com>
 ```
 
 **Command:**
+
 ```bash
-pull-request-fixer https://github.com/owner/repo/pull/TEST --fix-body --dry-run
+pull-request-fixer https://github.com/owner/repo/pull/123 \
+  --fix-body
 ```
 
 **Expected Body Result:**
-```
+
+```text
 This commit fixes an issue where users
 couldn't log in properly.
 ```
 
 **Validation:**
+
 - [ ] Trailers removed (Fixes:, Signed-off-by:, Co-authored-by:)
 - [ ] Body text preserved
-- [ ] Empty lines handled correctly
+- [ ] Empty lines handled as expected
 
 ---
 
 ### Test 10: Performance Test
 
-**Objective**: Test parallel processing with many PRs.
+**Goal**: Test parallel processing with PRs.
 
 **Command:**
+
 ```bash
-pull-request-fixer large-org \
-  --fix-title \
-  --workers 16 \
-  --verbose
+pull-request-fixer large-org --fix-title --fix-body \
+  --workers 8 --verbose
 ```
 
 **Metrics to Track:**
+
 - Total PRs found
 - Time to scan organization
 - Time to process all PRs
@@ -404,6 +450,7 @@ pull-request-fixer large-org \
 - Memory usage
 
 **Expected Performance:**
+
 - ~2-5 seconds per repository for scanning
 - ~1-2 seconds per PR for processing
 - Linear scaling with worker count (up to API limits)
@@ -415,41 +462,47 @@ pull-request-fixer large-org \
 After running tests, verify:
 
 ### Functional Requirements
+
 - [ ] Single PR mode works
 - [ ] Organization scan mode works
-- [ ] Title fixing works correctly
-- [ ] Body fixing works correctly
+- [ ] Title fixing works as expected
+- [ ] Body fixing works as expected
 - [ ] Trailers removed from bodies
 - [ ] Dry run mode previews without changing
 - [ ] Live mode actually updates PRs
 
 ### URL Parsing
+
 - [ ] Organization name accepted
 - [ ] Organization URL accepted
 - [ ] PR URL accepted
 - [ ] All URL variations work
 
 ### API Integration
+
 - [ ] GraphQL queries work for scanning
 - [ ] REST API works for PR operations
 - [ ] Authentication works
 - [ ] Re-run checks triggered after updates
 
 ### Error Handling
+
 - [ ] Invalid URLs caught
 - [ ] Missing token detected
-- [ ] API errors reported clearly
-- [ ] Network errors handled gracefully
+- [ ] API errors reported
+- [ ] Network errors handled appropriately
 
 ### Performance
+
 - [ ] Parallel processing works
 - [ ] Worker limit respected
 - [ ] No memory leaks
 - [ ] Reasonable speed
 
 ### Output
-- [ ] Progress displayed clearly
-- [ ] Dry run clearly marked
+
+- [ ] Progress displayed
+- [ ] Dry run marked
 - [ ] Success/failure reported
 - [ ] Verbose mode provides details
 - [ ] Quiet mode minimizes output
@@ -466,12 +519,14 @@ export GITHUB_TOKEN=ghp_xxxxxxxxxxxxx
 
 # Test 1: Single PR dry run
 echo "=== Test 1: Single PR Dry Run ==="
-pull-request-fixer https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
+pull-request-fixer \
+  https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
   --fix-title --dry-run
 
 # Test 2: Single PR live (if approved)
 echo "=== Test 2: Single PR Live ==="
-pull-request-fixer https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
+pull-request-fixer \
+  https://github.com/lfreleng-actions/go-httpbin-action/pull/44 \
   --fix-title
 
 # Test 3: Organization dry run
@@ -498,22 +553,29 @@ echo "=== All Tests Complete ==="
 ## Troubleshooting
 
 ### Issue: "No such command"
+
 **Solution**: Reinstall the package: `pip install -e .`
 
 ### Issue: API rate limit
-**Solution**: 
+
+**Solution**:
+
 - Reduce workers: `--workers 2`
 - Wait for rate limit reset
 - Use token with higher limits
 
 ### Issue: Authentication failed
+
 **Solution**:
-- Verify token is set: `echo $GITHUB_TOKEN`
+
+- Verify token exists: `echo $GITHUB_TOKEN`
 - Check token has `repo` scope
 - Ensure token hasn't expired
 
 ### Issue: PR not updating
+
 **Solution**:
+
 - Check token has write access to repository
 - Verify PR is not locked
 - Check repository is not archived
@@ -522,7 +584,7 @@ echo "=== All Tests Complete ==="
 
 ## Continuous Testing
 
-For ongoing development, run these regularly:
+For ongoing development, run these often:
 
 ```bash
 # Quick smoke test
@@ -530,20 +592,24 @@ pull-request-fixer --version
 pull-request-fixer --help
 
 # URL parsing tests
-python -c "from pull_request_fixer.cli import parse_target, extract_pr_info_from_url; \
+python -c "from pull_request_fixer.cli import parse_target, \
+  extract_pr_info_from_url; \
 assert parse_target('myorg') == ('org', 'myorg'); \
-assert parse_target('https://github.com/owner/repo/pull/44')[0] == 'pr'; \
+assert parse_target('https://github.com/owner/repo/pull/44')[0] \
+  == 'pr'; \
 print('✅ URL tests passed')"
 
 # Commit parser tests
 python -c "from pull_request_fixer.cli import parse_commit_message; \
-subject, body = parse_commit_message('Fix bug\n\nBody\n\nSigned-off-by: Test'); \
+subject, body = parse_commit_message(\
+  'Fix bug\n\nBody\n\nSigned-off-by: Test'); \
 assert subject == 'Fix bug'; \
 assert 'Signed-off-by' not in body; \
 print('✅ Parser tests passed')"
 
 # Module imports
-python -c "from pull_request_fixer import cli, models, pr_scanner, github_client; \
+python -c "from pull_request_fixer import cli, models, \
+  pr_scanner, github_client; \
 print('✅ Import tests passed')"
 ```
 
@@ -552,12 +618,16 @@ print('✅ Import tests passed')"
 ## Test Data
 
 Example PR that's good for testing:
-- **URL**: https://github.com/lfreleng-actions/go-httpbin-action/pull/44
-- **Current Title**: "Chore: Bump lfreleng-actions/draft-release-promote-action from 0.1.2 to 0.1.3"
-- **First Commit Subject**: "Chore: Bump lfreleng-actions/draft-release-promote-action"
+
+- **URL**: <https://github.com/lfreleng-actions/go-httpbin-action/pull/44>
+- **Current Title**: "Chore: Bump lfreleng-actions/draft-release-promote-action
+  from 0.1.2 to 0.1.3"
+- **First Commit Subject**: "Chore: Bump
+  lfreleng-actions/draft-release-promote-action"
 - **Expected Result**: Title shortened to match commit subject
 
 This PR demonstrates:
+
 - Title mismatch (version info in PR title but not in commit)
 - Blocked PR status
 - Typical dependabot-style PR
@@ -567,14 +637,16 @@ This PR demonstrates:
 ## Reporting Issues
 
 When reporting issues, include:
+
 1. Command used
 2. Full output (use `--verbose`)
 3. Expected vs actual behavior
 4. GitHub token scope (don't include token!)
-5. Organization/PR being processed (if public)
+5. Organization/PR under processing (if public)
 
 Example issue report:
-```
+
+```text
 Command: pull-request-fixer myorg --fix-title --verbose
 Output: [paste output]
 Expected: Title should update
