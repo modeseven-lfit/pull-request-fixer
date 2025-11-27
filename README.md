@@ -16,6 +16,10 @@ commit messages.
 - **✍️ Title Fixing**: Set PR titles to match the first commit's subject line
 - **📝 Body Fixing**: Set PR descriptions to match commit message bodies
   (excluding trailers)
+- **📄 File Fixing**: Apply regex-based search/replace to files in PRs (clones,
+  modifies, amends commit, and force-pushes changes)
+- **🚫 Blocked PR Filtering**: Option to process PRs that cannot merge
+  (failing checks, conflicts, etc.)
 - **🚀 Parallel Processing**: Process PRs concurrently for
   performance
 - **🔄 Dry Run Mode**: Preview changes before applying them
@@ -48,23 +52,46 @@ pull-request-fixer lfreleng-actions --fix-title
 # Fix both titles and bodies
 pull-request-fixer lfreleng-actions --fix-title --fix-body
 
+# Show help (includes version)
+pull-request-fixer --help
+
+# Fix files in a specific PR using regex
+pull-request-fixer https://github.com/owner/repo/pull/123 \
+  --fix-files \
+  --file-pattern './action.yaml' \
+  --search-pattern '^\s+type:\s+\S' \
+  --remove-lines \
+  --context-start 'inputs:' \
+  --context-end 'runs:' \
+  --dry-run \
+  --show-diff
+
 # Preview changes without applying (dry run)
 pull-request-fixer lfreleng-actions --fix-title --fix-body --dry-run
 ```
 
 ## Usage
 
-### Basic Command
+### Basic Commands
+
+**Scan and fix an organization:**
 
 ```bash
 pull-request-fixer ORGANIZATION [OPTIONS]
 ```
 
-You can specify the organization as:
+**Fix a specific PR:**
+
+```bash
+pull-request-fixer PR_URL [OPTIONS]
+```
+
+You can specify the target as:
 
 - Organization name: `myorg`
 - GitHub URL: `https://github.com/myorg`
 - GitHub URL with path: `https://github.com/myorg/`
+- Specific PR URL: `https://github.com/owner/repo/pull/123`
 
 ### Fix Options
 
@@ -104,6 +131,60 @@ log in with special characters in passwords.
 
 The `Signed-off-by:` trailer is automatically removed.
 
+#### `--fix-files`
+
+Fixes files in pull requests using regex-based search and replace. This feature:
+
+1. Clones the PR branch
+2. Finds files matching `--file-pattern` (regex)
+3. Applies search/replace using `--search-pattern` and `--replacement`
+4. Amends the last commit with the changes
+5. Force-pushes the updated commit back to the PR
+
+**Required options when using `--fix-files`:**
+
+- `--file-pattern`: Regex to match file paths (e.g., `'./action.yaml'` or
+  `'.*\.yaml$'`)
+- `--search-pattern`: Regex pattern to find in matched files
+- Either `--replacement` (text to replace matches) or `--remove-lines` (to
+  delete matching lines)
+
+**Optional context options (for line removal):**
+
+- `--context-start`: Regex to define where the removal context begins (e.g., `'inputs:'`)
+- `--context-end`: Regex to define where the removal context ends (e.g., `'runs:'`)
+
+**Optional display options:**
+
+- `--show-diff`: Show unified diff output for file changes
+
+**Example - Remove type definitions from GitHub Actions:**
+
+```bash
+pull-request-fixer https://github.com/owner/repo/pull/123 \
+  --fix-files \
+  --file-pattern './action.yaml' \
+  --search-pattern '^\s+type:\s+\S' \
+  --remove-lines \
+  --context-start 'inputs:' \
+  --context-end 'runs:' \
+  --dry-run \
+  --show-diff
+```
+
+This will remove lines containing `type:` that appear between `inputs:` and `runs:`
+sections in `action.yaml` files.
+
+**Example - Replace text with regex:**
+
+```bash
+pull-request-fixer https://github.com/owner/repo/pull/456 \
+  --fix-files \
+  --file-pattern '.*\.py$' \
+  --search-pattern 'old_function_name' \
+  --replacement 'new_function_name'
+```
+
 ### Common Usage Patterns
 
 **Fix titles:**
@@ -142,6 +223,38 @@ pull-request-fixer myorg --fix-title --workers 16
 pull-request-fixer myorg --fix-title --quiet
 ```
 
+**Verbose mode for debugging:**
+
+```bash
+pull-request-fixer myorg --fix-files --file-pattern '*.yaml' \
+  --search-pattern '^\s+type:\s+\S' --remove-lines \
+  --verbose  # Shows detailed DEBUG logs including file operations
+```
+
+**Process blocked PRs:**
+
+<!-- write-good-disable -->
+```bash
+pull-request-fixer myorg --fix-title --blocked-only
+```
+<!-- write-good-enable -->
+
+**Fix files in multiple PRs:**
+
+<!-- write-good-disable -->
+```bash
+pull-request-fixer myorg \
+  --fix-files \
+  --file-pattern './action.yaml' \
+  --search-pattern '^\s+type:\s+\S' \
+  --remove-lines \
+  --context-start 'inputs:' \
+  --context-end 'runs:' \
+  --blocked-only \
+  --dry-run
+```
+<!-- write-good-enable -->
+
 ## PR Comments
 
 When the tool applies fixes (not in dry-run mode), it automatically adds a
@@ -167,19 +280,32 @@ comment.
 
 ## Options
 
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--token` | `-t` | `$GITHUB_TOKEN` | GitHub personal access token |
-| `--fix-title` | | `false` | Fix PR title to match first commit subject |
-| `--fix-body` | | `false` | Fix PR body to match commit message body |
-| `--include-drafts` | | `false` | Include draft PRs in scan |
-| `--dry-run` | | `false` | Preview changes without applying them |
-| `--workers` | `-j` | `4` | Number of parallel workers (1-32) |
-| `--verbose` | `-v` | `false` | Enable verbose output |
-| `--quiet` | `-q` | `false` | Suppress output except errors |
-| `--log-level` | | `INFO` | Set logging level |
-| `--version` | | | Show version and exit |
-| `--help` | | | Show help message |
+<!-- markdownlint-disable MD013 -->
+
+| Flag               | Short | Default         | Description                                           |
+| ------------------ | ----- | --------------- | ----------------------------------------------------- |
+| `--help`           | `-h`  |                 | Show help message and exit (displays version)         |
+| `--token`          | `-t`  | `$GITHUB_TOKEN` | GitHub personal access token                          |
+| `--fix-title`      |       | `false`         | Fix PR title to match first commit subject            |
+| `--fix-body`       |       | `false`         | Fix PR body to match commit message body              |
+| `--fix-files`      |       | `false`         | Fix files in PR using regex search/replace            |
+| `--file-pattern`   |       |                 | Regex to match file paths (required w/ `--fix-files`) |
+| `--search-pattern` |       |                 | Regex to search in files (required w/ `--fix-files`)  |
+| `--replacement`    |       |                 | Replacement string for matched patterns               |
+| `--remove-lines`   |       | `false`         | Remove matching lines instead of replacing            |
+| `--context-start`  |       |                 | Regex pattern for context start (for line removal)    |
+| `--context-end`    |       |                 | Regex pattern for context end (for line removal)      |
+| `--show-diff`      |       | `false`         | Show unified diff output for file changes             |
+| `--include-drafts` |       | `false`         | Include draft PRs in scan                             |
+| `--blocked-only`   |       | `false`         | Process PRs that cannot merge                         |
+| `--dry-run`        |       | `false`         | Preview changes without applying them                 |
+| `--workers`        | `-j`  | `4`             | Number of parallel workers (1-32)                     |
+| `--verbose`        | `-v`  | `false`         | Enable verbose output (DEBUG logs)                    |
+| `--quiet`          | `-q`  | `false`         | Suppress output except errors                         |
+| `--log-level`      |       | `INFO`          | Set logging level                                     |
+| `--version`        |       |                 | Show version and exit                                 |
+
+<!-- markdownlint-enable MD013 -->
 
 ## How It Works
 
@@ -302,6 +428,79 @@ Example timing for 100 repositories with 50 blocked PRs using 8 workers:
 - Organization scan: ~30-60 seconds
 - PR processing: ~20-30 seconds
 - **Total: ~50-90 seconds**
+
+### Example 4: Fix Files in a Blocked PR
+
+This example removes invalid `type:` definitions from a GitHub composite action:
+
+```bash
+pull-request-fixer https://github.com/lfreleng-actions/make-action/pull/40 \
+  --fix-files \
+  --file-pattern './action.yaml' \
+  --search-pattern '^\s+type:\s+\S' \
+  --remove-lines \
+  --context-start 'inputs:' \
+  --context-end 'runs:' \
+  --dry-run \
+  --show-diff
+```
+
+Output:
+
+<!-- write-good-disable -->
+```text
+🔍 Processing PR: https://github.com/lfreleng-actions/make-action/pull/40
+🔧 Will fix: files
+🏃 Dry run mode: changes will not be applied
+
+📝 Fixing files in PR...
+```
+<!-- write-good-enable -->
+
+✅ Would fix 1 file
+📂 action.yaml
+--- action.yaml
++++ action.yaml
+@@ -10,7 +10,6 @@
+   repository:
+     description: 'Remote Git repository URL'
+     required: false
+
+- type: 'string'
+   debug:
+     description: 'Enable debug mode'
+     required: false
+- type: 'boolean'
+
+Dry-run completed!
+
+```text
+
+Without `--dry-run`, the output would show:
+
+```text
+✅ Updated 1 file
+🔀 action.yaml
+--- action.yaml
++++ action.yaml
+@@ -10,7 +10,6 @@
+   repository:
+     description: 'Remote Git repository URL'
+     required: false
+-    type: 'string'
+   debug:
+     description: 'Enable debug mode'
+     required: false
+-    type: 'boolean'
+```
+
+This would:
+
+1. Clone the PR branch
+2. Remove all lines containing `type:` from the `inputs:` section of `action.yaml`
+3. Amend the last commit with the changes
+4. Force-push the updated commit
+5. Add a comment to the PR explaining the fix
 
 ## Troubleshooting
 

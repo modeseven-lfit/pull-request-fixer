@@ -407,6 +407,81 @@ class PRScanner:
         """
         return include_drafts or not pr_node.get("isDraft", False)
 
+    def _extract_failing_checks(self, pr: dict[str, Any]) -> list[str]:
+        """Extract failing check names from PR statusCheckRollup.
+
+        Args:
+            pr: PR data from GraphQL with statusCheckRollup
+
+        Returns:
+            List of failing check names
+        """
+        failing: list[str] = []
+
+        commits = (pr.get("commits") or {}).get("nodes", []) or []
+        if not commits:
+            return failing
+
+        commit = (commits[0] or {}).get("commit") or {}
+        rollup = commit.get("statusCheckRollup") or {}
+        contexts = (rollup.get("contexts") or {}).get("nodes", []) or []
+
+        for ctx in contexts:
+            typ = ctx.get("__typename")
+            if typ == "CheckRun":
+                # Consider failure, cancelled, or timed_out as failing
+                conclusion = (ctx.get("conclusion") or "").lower()
+                if conclusion in (
+                    "failure",
+                    "cancelled",
+                    "timed_out",
+                    "action_required",
+                ):
+                    name = ctx.get("name") or ""
+                    if name:
+                        failing.append(name)
+            elif typ == "StatusContext":
+                # StatusContext uses state instead of conclusion
+                state = (ctx.get("state") or "").upper()
+                if state in ("FAILURE", "ERROR"):
+                    context = ctx.get("context") or ""
+                    if context:
+                        failing.append(context)
+
+        return failing
+
+    def is_pr_blocked(self, pr: dict[str, Any]) -> tuple[bool, list[str]]:
+        """Check if a PR is blocked from merging.
+
+        Args:
+            pr: PR data from GraphQL
+
+        Returns:
+            Tuple of (is_blocked, list of blocking reasons)
+        """
+        blocking_reasons: list[str] = []
+
+        # Check mergeable state
+        mergeable = pr.get("mergeable", "UNKNOWN")
+        if mergeable == "CONFLICTING":
+            blocking_reasons.append("Merge conflicts")
+
+        # Check for failing status checks
+        failing_checks = self._extract_failing_checks(pr)
+        if failing_checks:
+            blocking_reasons.append(
+                f"Failing checks: {', '.join(failing_checks)}"
+            )
+
+        # Check merge state status
+        merge_state = pr.get("mergeStateStatus", "UNKNOWN")
+        if merge_state == "BLOCKED":
+            blocking_reasons.append("Blocked by branch protection rules")
+        elif merge_state == "BEHIND":
+            blocking_reasons.append("Behind base branch")
+
+        return len(blocking_reasons) > 0, blocking_reasons
+
     @staticmethod
     def _split_owner_repo(full_name: str) -> tuple[str, str]:
         """Split 'owner/repo' into separate components.

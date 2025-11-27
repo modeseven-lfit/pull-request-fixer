@@ -72,6 +72,7 @@ repos:
             SETUP\.md|
             FEATURES\.md|
             CONTRIBUTING\.md|
+            README\.md|
             PROJECT_SUMMARY\.md|
             EMOJI_TESTING\.md|
             examples/bad_tables\.md|

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import logging
 import re
 from typing import Any
@@ -16,8 +17,9 @@ import typer
 
 from ._version import __version__
 from .github_client import GitHubClient
-from .pr_scanner import PRScanner
-from .progress_tracker import ProgressTracker
+from .models import GitHubFixResult  # noqa: TC001
+from .pr_scanner import PRScanner  # noqa: TC003
+from .progress_tracker import ProgressTracker  # noqa: TC003
 
 console = Console()
 
@@ -25,7 +27,17 @@ console = Console()
 def version_callback(ctx: typer.Context, value: bool) -> None:
     """Print version and exit."""
     if value:
-        console.print(f"pull-request-fixer version {__version__}")
+        console.print(f"🏷️  pull-request-fixer version {__version__}")
+        ctx.exit()
+
+
+def help_callback(ctx: typer.Context, value: bool) -> None:
+    """Print version and help."""
+    if value:
+        console.print(f"🏷️  pull-request-fixer version {__version__}")
+        console.print()
+        # Print help text to the console
+        console.print(ctx.get_help())
         ctx.exit()
 
 
@@ -128,6 +140,14 @@ def main(
         None,
         help="GitHub organization name/URL or PR URL (e.g., 'myorg', 'https://github.com/myorg', or 'https://github.com/owner/repo/pull/123')",
     ),
+    _help: bool = typer.Option(
+        False,
+        "--help",
+        "-h",
+        callback=help_callback,
+        is_eager=True,
+        help="Show this message and exit",
+    ),
     token: str | None = typer.Option(
         None,
         "--token",
@@ -144,6 +164,46 @@ def main(
         False,
         "--fix-body",
         help="Fix PR body to match first commit message body (excluding trailers)",
+    ),
+    fix_files: bool = typer.Option(
+        False,
+        "--fix-files",
+        help="Fix files in PR using regex search/replace",
+    ),
+    file_pattern: str | None = typer.Option(
+        None,
+        "--file-pattern",
+        help="Regex pattern to match file paths (e.g., './action.yaml')",
+    ),
+    search_pattern: str | None = typer.Option(
+        None,
+        "--search-pattern",
+        help="Regex pattern to search for in matched files",
+    ),
+    replacement: str | None = typer.Option(
+        None,
+        "--replacement",
+        help="Replacement string (empty to remove lines)",
+    ),
+    remove_lines: bool = typer.Option(
+        False,
+        "--remove-lines",
+        help="Remove matching lines entirely instead of replacing",
+    ),
+    context_start: str | None = typer.Option(
+        None,
+        "--context-start",
+        help="Regex pattern for context start (e.g., 'inputs:')",
+    ),
+    context_end: str | None = typer.Option(
+        None,
+        "--context-end",
+        help="Regex pattern for context end (e.g., 'runs:')",
+    ),
+    show_diff: bool = typer.Option(
+        False,
+        "--show-diff",
+        help="Show diff output for file changes",
     ),
     include_drafts: bool = typer.Option(
         False,
@@ -194,7 +254,7 @@ def main(
     ),
 ) -> None:
     """
-    Pull request fixer - automatically fix PR titles and bodies from commit messages.
+    Pull request fixer - automatically fix PR titles, bodies, and files.
 
     Can process either:
     - An entire organization: Scans for all blocked pull requests
@@ -205,6 +265,10 @@ def main(
       pull-request-fixer https://github.com/myorg --fix-title --dry-run
       pull-request-fixer https://github.com/owner/repo/pull/123 --fix-title
       pull-request-fixer myorg --fix-title --workers 8 --verbose
+
+      # Fix files with regex:
+      pull-request-fixer <PR-URL> --fix-files --file-pattern './action.yaml' \\
+        --search-pattern 'type:' --remove-lines --context-start 'inputs:' --context-end 'runs:'
     """
     # If no target provided, show help
     if target is None:
@@ -225,10 +289,10 @@ def main(
     setup_logging(log_level=log_level, quiet=quiet, verbose=verbose)
 
     # Validate that at least one fix option is enabled
-    if not fix_title and not fix_body:
+    if not fix_title and not fix_body and not fix_files:
         console.print(
             "[yellow]Warning:[/yellow] No fix options specified. "
-            "Use --fix-title and/or --fix-body to enable fixes."
+            "Use --fix-title, --fix-body, and/or --fix-files to enable fixes."
         )
         console.print()
         console.print("Available options:")
@@ -236,11 +300,30 @@ def main(
             "  --fix-title  Fix PR title to match first commit subject"
         )
         console.print("  --fix-body   Fix PR body to match first commit body")
+        console.print("  --fix-files  Fix files using regex search/replace")
         console.print()
         console.print(
             "Example: pull-request-fixer myorg --fix-title --fix-body"
         )
         raise typer.Exit(1)
+
+    # Validate file fixing options
+    if fix_files:
+        if not file_pattern:
+            console.print(
+                "[red]Error:[/red] --file-pattern is required when using --fix-files"
+            )
+            raise typer.Exit(1)
+        if not search_pattern:
+            console.print(
+                "[red]Error:[/red] --search-pattern is required when using --fix-files"
+            )
+            raise typer.Exit(1)
+        if not remove_lines and replacement is None:
+            console.print(
+                "[red]Error:[/red] Either --replacement or --remove-lines is required when using --fix-files"
+            )
+            raise typer.Exit(1)
 
     if not token:
         console.print(
@@ -260,6 +343,14 @@ def main(
                 token=token,
                 fix_title=fix_title,
                 fix_body=fix_body,
+                fix_files=fix_files,
+                file_pattern=file_pattern,
+                search_pattern=search_pattern,
+                replacement=replacement or "",
+                remove_lines=remove_lines,
+                context_start=context_start,
+                context_end=context_end,
+                blocked_only=blocked_only,
                 dry_run=dry_run,
                 quiet=quiet,
             )
@@ -272,6 +363,14 @@ def main(
                 token=token,
                 fix_title=fix_title,
                 fix_body=fix_body,
+                fix_files=fix_files,
+                file_pattern=file_pattern,
+                search_pattern=search_pattern,
+                replacement=replacement or "",
+                remove_lines=remove_lines,
+                context_start=context_start,
+                context_end=context_end,
+                show_diff=show_diff,
                 include_drafts=include_drafts,
                 blocked_only=blocked_only,
                 dry_run=dry_run,
@@ -286,6 +385,14 @@ async def process_single_pr(
     token: str,
     fix_title: bool,
     fix_body: bool,
+    fix_files: bool,
+    file_pattern: str | None,
+    search_pattern: str | None,
+    replacement: str,
+    remove_lines: bool,
+    context_start: str | None,
+    context_end: str | None,
+    blocked_only: bool,
     dry_run: bool,
     quiet: bool,
 ) -> None:
@@ -296,6 +403,14 @@ async def process_single_pr(
         token: GitHub token
         fix_title: Whether to fix PR title
         fix_body: Whether to fix PR body
+        fix_files: Whether to fix files using regex
+        file_pattern: Regex pattern to match file paths
+        search_pattern: Regex pattern to search for
+        replacement: Replacement string
+        remove_lines: Whether to remove matching lines
+        context_start: Optional context start marker
+        context_end: Optional context end marker
+        blocked_only: Whether to only process blocked PRs
         dry_run: Whether to preview without applying changes
         quiet: Whether to suppress output
     """
@@ -306,23 +421,175 @@ async def process_single_pr(
             fixes.append("title")
         if fix_body:
             fixes.append("body")
+        if fix_files:
+            fixes.append("files")
         console.print(f"🔧 Will fix: {', '.join(fixes)}")
         if dry_run:
             console.print("🏃 Dry run mode: no changes will be applied")
         console.print()
 
-    # Extract PR info from URL
-    pr_info = extract_pr_info_from_url(pr_url)
-    if not pr_info:
-        console.print(f"[red]Error:[/red] Invalid PR URL: {pr_url}")
-        console.print()
-        console.print("Expected format: https://github.com/owner/repo/pull/123")
-        raise typer.Exit(1)
-
-    owner, repo_name, pr_number = pr_info
-
     try:
         async with GitHubClient(token) as client:  # type: ignore[attr-defined]
+            # Check if PR is blocked if --blocked-only is specified
+            if blocked_only:
+                # Extract owner, repo, and PR number from URL
+                pr_info = extract_pr_info_from_url(pr_url)
+                if not pr_info:
+                    console.print(f"[red]Error:[/red] Invalid PR URL: {pr_url}")
+                    raise typer.Exit(1)
+
+                owner, repo_name, pr_number = pr_info
+
+                # Fetch PR data using GraphQL to check blocked status
+                query = """
+                query($owner: String!, $repo: String!, $number: Int!) {
+                    repository(owner: $owner, name: $repo) {
+                        pullRequest(number: $number) {
+                            number
+                            title
+                            mergeable
+                            mergeStateStatus
+                            commits(last: 1) {
+                                nodes {
+                                    commit {
+                                        statusCheckRollup {
+                                            contexts(first: 100) {
+                                                nodes {
+                                                    __typename
+                                                    ... on StatusContext {
+                                                        state
+                                                        context
+                                                    }
+                                                    ... on CheckRun {
+                                                        conclusion
+                                                        status
+                                                        name
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                """
+
+                variables = {
+                    "owner": owner,
+                    "repo": repo_name,
+                    "number": pr_number,
+                }
+
+                response = await client.graphql(query, variables)
+                pr_data = response.get("repository", {}).get("pullRequest")
+
+                if not pr_data:
+                    console.print("[red]Error:[/red] Could not fetch PR data")
+                    raise typer.Exit(1)
+
+                # Check if PR is blocked
+                from .pr_scanner import PRScanner
+
+                scanner = PRScanner(client)
+                is_blocked, reason = scanner.is_pr_blocked(pr_data)
+
+                if not is_blocked:
+                    console.print(
+                        "[yellow]⚠️  Error: pull request is NOT in a blocked state[/yellow]"
+                    )
+                    raise typer.Exit(1)
+
+                if not quiet:
+                    console.print(f"✓ PR is blocked: {reason}")
+                    console.print()
+
+            # Handle file fixing separately (uses Git operations)
+            if fix_files and file_pattern and search_pattern:
+                from .pr_file_fixer import PRFileFixer
+
+                if not quiet:
+                    console.print("📝 Fixing files in PR...")
+
+                fixer = PRFileFixer(client)
+                result: GitHubFixResult = await fixer.fix_pr_by_url(
+                    pr_url,
+                    file_pattern,
+                    search_pattern,
+                    replacement,
+                    remove_lines=remove_lines,
+                    context_start=context_start,
+                    context_end=context_end,
+                    dry_run=dry_run,
+                )
+
+                if not quiet:
+                    console.print()
+                    if result.success:
+                        console.print(f"[green]✅ {result.message}[/green]")
+
+                        # Show modified files with diffs
+                        for modification in result.file_modifications:
+                            # Get relative path for display
+                            try:
+                                display_path = modification.file_path.name
+                            except Exception:
+                                display_path = str(modification.file_path)
+
+                            # Use different emoji based on dry-run status
+                            emoji = "📂" if dry_run else "🔀"
+                            console.print(f"{emoji} {display_path}")
+
+                            # Always show diff (in dry-run mode or regular mode)
+                            diff_output = modification.diff
+                            if diff_output:
+                                console.print(
+                                    diff_output, highlight=False, markup=False
+                                )
+                    else:
+                        console.print(f"[yellow]⚠️  {result.message}[/yellow]")
+                        if result.error:
+                            console.print(f"   Error: {result.error}")
+
+                # Create a PR comment if files were modified and not dry-run
+                if not dry_run and result.success and result.file_modifications:
+                    # Extract PR info from URL
+                    pr_info = extract_pr_info_from_url(pr_url)
+                    if pr_info:
+                        owner, repo_name, pr_number = pr_info
+                        command_args = {
+                            "file_pattern": file_pattern,
+                            "search_pattern": search_pattern,
+                            "replacement": replacement,
+                            "remove_lines": remove_lines,
+                            "context_start": context_start,
+                            "context_end": context_end,
+                        }
+                        await create_file_fix_comment(
+                            client,
+                            owner,
+                            repo_name,
+                            pr_number,
+                            result,
+                            command_args,
+                        )
+
+                return
+
+            # Handle title/body fixing (uses GraphQL)
+            # Extract PR info from URL
+            pr_info = extract_pr_info_from_url(pr_url)
+            if not pr_info:
+                console.print(f"[red]Error:[/red] Invalid PR URL: {pr_url}")
+                console.print()
+                console.print(
+                    "Expected format: https://github.com/owner/repo/pull/123"
+                )
+                raise typer.Exit(1)
+
+            owner, repo_name, pr_number = pr_info
+
             # Fetch PR data
             if not quiet:
                 console.print("📥 Fetching pull request metadata...")
@@ -336,7 +603,7 @@ async def process_single_pr(
 
             # Process the PR
             semaphore = asyncio.Semaphore(1)  # Single PR, no parallelism needed
-            result = await process_pr(
+            result = await process_pr(  # type: ignore[assignment]
                 client=client,
                 owner=owner,
                 repo_name=repo_name,
@@ -378,6 +645,14 @@ async def scan_and_fix_organization(
     token: str,
     fix_title: bool,
     fix_body: bool,
+    fix_files: bool,
+    file_pattern: str | None,
+    search_pattern: str | None,
+    replacement: str,
+    remove_lines: bool,
+    context_start: str | None,
+    context_end: str | None,
+    show_diff: bool,
     include_drafts: bool,
     blocked_only: bool,
     dry_run: bool,
@@ -404,6 +679,8 @@ async def scan_and_fix_organization(
             fixes.append("titles")
         if fix_body:
             fixes.append("bodies")
+        if fix_files:
+            fixes.append("files")
         console.print(f"🔧 Will fix: {', '.join(fixes)}")
         if blocked_only:
             console.print("🚫 Filtering to blocked/unmergeable PRs only")
@@ -451,8 +728,8 @@ async def scan_and_fix_organization(
                 max_repo_tasks=workers,
                 max_page_tasks=workers * 2,
             )
-            # Collect blocked PRs
-            blocked_prs: list[tuple[str, str, dict[str, Any]]] = []
+            # Collect PRs to process
+            prs_to_process: list[tuple[str, str, dict[str, Any]]] = []
 
             # Note: progress_tracker.start() is called by scanner after counting repos
             try:
@@ -463,8 +740,14 @@ async def scan_and_fix_organization(
                 ) in scanner.scan_organization(
                     org, include_drafts=include_drafts
                 ):
-                    # Store blocked PR info
-                    blocked_prs.append((owner, repo_name, pr_data))
+                    # Filter by blocked status if requested
+                    if blocked_only:
+                        is_blocked, _ = scanner.is_pr_blocked(pr_data)
+                        if not is_blocked:
+                            continue
+
+                    # Store PR info
+                    prs_to_process.append((owner, repo_name, pr_data))
 
             except Exception as scan_error:
                 if progress_tracker:
@@ -478,72 +761,240 @@ async def scan_and_fix_organization(
             if progress_tracker:
                 progress_tracker.stop()
 
-            if not blocked_prs:
-                console.print("\n[green]✅ No blocked PRs found![/green]")
+            if not prs_to_process:
+                if blocked_only:
+                    console.print("\n[green]✅ No blocked PRs found![/green]")
+                else:
+                    console.print("\n[green]✅ No PRs found![/green]")
                 return
 
             if not quiet:
+                pr_type = "blocked " if blocked_only else ""
                 console.print(
-                    f"\n🔍 Checking {len(blocked_prs)} blocked pull request{'s' if len(blocked_prs) != 1 else ''}...\n"
+                    f"\n🔍 Processing {len(prs_to_process)} {pr_type}pull request{'s' if len(prs_to_process) != 1 else ''}...\n"
                 )
 
             # Phase 4: Process PRs in parallel using semaphore for concurrency control
             semaphore = asyncio.Semaphore(workers)
             tasks = []
 
-            for owner, repo_name, pr_data in blocked_prs:
-                task = process_pr(
-                    client=client,
-                    owner=owner,
-                    repo_name=repo_name,
-                    pr_data=pr_data,
-                    fix_title=fix_title,
-                    fix_body=fix_body,
-                    dry_run=dry_run,
-                    quiet=quiet,
-                    semaphore=semaphore,
-                )
-                tasks.append(asyncio.create_task(task))
+            # Handle file fixing separately if enabled
+            if fix_files and file_pattern and search_pattern:
+                from .pr_file_fixer import PRFileFixer
+
+                fixer = PRFileFixer(client)
+
+                for owner, repo_name, pr_data in prs_to_process:
+                    pr_number = pr_data.get("number", 0)
+                    pr_url = f"https://github.com/{owner}/{repo_name}/pull/{pr_number}"
+
+                    async def process_pr_files(
+                        url: str, owner: str, repo_name: str, pr_number: int
+                    ) -> dict[str, Any]:
+                        async with semaphore:
+                            result = await fixer.fix_pr_by_url(
+                                url,
+                                file_pattern,
+                                search_pattern,
+                                replacement,
+                                remove_lines=remove_lines,
+                                context_start=context_start,
+                                context_end=context_end,
+                                dry_run=dry_run,
+                            )
+
+                            pr_id = f"{owner}/{repo_name}#{pr_number}"
+                            result_dict = {
+                                "result": result,
+                                "status": "success"
+                                if result.success
+                                else "failed",
+                                "pr_id": pr_id,
+                            }
+
+                            # In dry-run mode, show output immediately (progressively)
+                            if dry_run and not quiet:
+                                # Only show output if there are actual changes or failures
+                                if result.success and result.file_modifications:
+                                    console.print(
+                                        f"[green]✅ {pr_id}: {result.message}[/green]"
+                                    )
+
+                                    # Show modified files with diffs
+                                    for (
+                                        modification
+                                    ) in result.file_modifications:
+                                        try:
+                                            display_path = (
+                                                modification.file_path.name
+                                            )
+                                        except Exception:
+                                            display_path = str(
+                                                modification.file_path
+                                            )
+
+                                        emoji = "🔀"
+                                        console.print(f"{emoji} {display_path}")
+
+                                        # Always show diff in dry-run mode
+                                        diff_output = modification.diff
+                                        if diff_output:
+                                            console.print(
+                                                diff_output,
+                                                highlight=False,
+                                                markup=False,
+                                            )
+                                    console.print()  # Blank line between PRs
+                                elif not result.success:
+                                    console.print(
+                                        f"[red]❌ Failed: {pr_id}[/red]"
+                                    )
+                                    if result.error:
+                                        console.print(
+                                            f"  Error: {result.error}"
+                                        )
+                                    console.print()
+
+                            # Create PR comment if files were modified and not dry-run
+                            if (
+                                not dry_run
+                                and result.success
+                                and result.file_modifications
+                            ):
+                                command_args = {
+                                    "file_pattern": file_pattern,
+                                    "search_pattern": search_pattern,
+                                    "replacement": replacement,
+                                    "remove_lines": remove_lines,
+                                    "context_start": context_start,
+                                    "context_end": context_end,
+                                }
+                                with suppress(Exception):
+                                    await create_file_fix_comment(
+                                        client,
+                                        owner,
+                                        repo_name,
+                                        pr_number,
+                                        result,
+                                        command_args,
+                                    )
+
+                            return result_dict
+
+                    tasks.append(
+                        asyncio.create_task(
+                            process_pr_files(
+                                pr_url, owner, repo_name, pr_number
+                            )
+                        )
+                    )
+            else:
+                # Handle title/body fixing (GraphQL-based)
+                for owner, repo_name, pr_data in prs_to_process:
+                    task = process_pr(
+                        client=client,
+                        owner=owner,
+                        repo_name=repo_name,
+                        pr_data=pr_data,
+                        fix_title=fix_title,
+                        fix_body=fix_body,
+                        dry_run=dry_run,
+                        quiet=quiet,
+                        semaphore=semaphore,
+                    )
+                    tasks.append(asyncio.create_task(task))
 
             # Wait for all processing to complete
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             # Process results and output
-            success_count = 0
+            # Count only PRs that have actual changes (file modifications)
+            prs_with_changes = 0
             failed_count = 0
 
             if not quiet:
+                # In non-dry-run mode, show summary at the end
+                # In dry-run mode, output was already shown progressively above
                 for result in results:
                     if isinstance(result, Exception):
                         failed_count += 1
-                        console.print(
-                            f"[red]❌ Failed to update pull request: {result}[/red]"
-                        )
+                        if not dry_run:
+                            console.print(
+                                f"[red]❌ Failed to update pull request: {result}[/red]"
+                            )
                     elif isinstance(result, dict):
                         status = result.get("status")
                         pr_id = result.get("pr_id", "unknown")
 
                         if status == "success":
-                            success_count += 1
-                            if not dry_run:
-                                # Show successful update with Previous/Updated labels
-                                console.print(f"[green]✅ {pr_id}[/green]")
-                                title_info = result.get("title")
-                                if title_info:
+                            # Check if this result has actual file modifications
+                            fix_result = result.get("result")
+                            has_changes = False
+
+                            if fix_result and fix_result.file_modifications:
+                                has_changes = True
+                                prs_with_changes += 1
+                            elif result.get("title") or result.get("body"):
+                                # Title/body changes
+                                has_changes = True
+                                prs_with_changes += 1
+
+                            # Only show detailed output in non-dry-run mode
+                            # (dry-run output was already shown progressively)
+                            if not dry_run and has_changes:
+                                # Check if this is a file fixing result
+                                if fix_result:
+                                    # File fixing result
                                     console.print(
-                                        f"     Previous: {title_info['previous']}"
+                                        f"[green]✅ {pr_id}: {fix_result.message}[/green]"
                                     )
-                                    console.print(
-                                        f"     Updated:  {title_info['updated']}"
-                                    )
+
+                                    # Show modified files with diffs
+                                    for (
+                                        modification
+                                    ) in fix_result.file_modifications:
+                                        try:
+                                            display_path = (
+                                                modification.file_path.name
+                                            )
+                                        except Exception:
+                                            display_path = str(
+                                                modification.file_path
+                                            )
+
+                                        emoji = "🔀"
+                                        console.print(f"{emoji} {display_path}")
+
+                                        if show_diff:
+                                            diff_output = modification.diff
+                                            if diff_output:
+                                                console.print(
+                                                    diff_output,
+                                                    highlight=False,
+                                                    markup=False,
+                                                )
+                                else:
+                                    # Title/body fixing result
+                                    console.print(f"[green]✅ {pr_id}[/green]")
+
+                                    # Show title/body changes if present
+                                    title_info = result.get("title")
+                                    if title_info:
+                                        console.print(
+                                            f"     Previous: {title_info['previous']}"
+                                        )
+                                        console.print(
+                                            f"     Updated:  {title_info['updated']}"
+                                        )
                         elif status == "failed":
                             failed_count += 1
-                            error_msg = result.get("error", "Unknown error")
-                            console.print(
-                                f"[red]❌ Failed to update pull request: {pr_id}[/red]"
-                            )
-                            if error_msg != "Unknown error":
-                                console.print(f"     Error: {error_msg}")
+                            if not dry_run:
+                                error_msg = result.get("error", "Unknown error")
+                                console.print(
+                                    f"[red]❌ Failed to update pull request: {pr_id}[/red]"
+                                )
+                                if error_msg != "Unknown error":
+                                    console.print(f"     Error: {error_msg}")
                         # Skip output for "no_change" status
             else:
                 # Count results when quiet mode is on
@@ -553,21 +1004,43 @@ async def scan_and_fix_organization(
                     elif isinstance(result, dict):
                         status = result.get("status")
                         if status == "success":
-                            success_count += 1
+                            # Count only results with actual changes
+                            fix_result = result.get("result")
+                            if (
+                                fix_result
+                                and fix_result.file_modifications
+                                or result.get("title")
+                                or result.get("body")
+                            ):
+                                prs_with_changes += 1
                         elif status == "failed":
                             failed_count += 1
 
             # Summary
             if not quiet:
-                console.print()
+                # Build pr_type string conditionally
+                pr_type_str = "blocked " if blocked_only else ""
+
                 if dry_run:
-                    console.print(
-                        f"☑️  {success_count} blocked pull request{'s' if success_count != 1 else ''} need attention"
-                    )
+                    # Dry run summary
+                    if prs_with_changes == 0:
+                        console.print(
+                            f"☑️  No {pr_type_str}pull requests need fixes"
+                        )
+                    elif prs_with_changes == 1:
+                        console.print(
+                            f"☑️  Would apply fixes to 1 {pr_type_str}pull request"
+                        )
+                    else:
+                        console.print(
+                            f"☑️  Would apply fixes to {prs_with_changes} {pr_type_str}pull requests"
+                        )
                 else:
-                    console.print(
-                        f"[green]✅ Updated pull requests: {success_count}[/green]"
-                    )
+                    # Non-dry run summary
+                    if prs_with_changes > 0:
+                        console.print(
+                            f"[green]✅ Updated {prs_with_changes} {pr_type_str}pull request{'s' if prs_with_changes != 1 else ''}[/green]"
+                        )
                     if failed_count > 0:
                         console.print(
                             f"[red]❌ Failed updates: {failed_count}[/red]"
@@ -1020,17 +1493,124 @@ async def create_pr_comment(
 
         # Add specific fixes
         if "title" in changes_made:
-            lines.append(
-                "- **Pull request title** updated to match first commit"
-            )
+            lines.append("- Updated pull request title to match commit")
         if "body" in changes_made:
             lines.append(
-                "- **Pull request body** updated to match commit message"
+                "- Updated pull request description to match commit body message"
             )
 
         lines.extend(
             [
                 "",
+                "---",
+                "*This fix was automatically applied by "
+                "[pull-request-fixer](https://github.com/lfit/pull-request-fixer)*",
+            ]
+        )
+
+        comment_body = "\n".join(lines)
+
+        # Create the comment
+        endpoint = f"/repos/{owner}/{repo}/issues/{pr_number}/comments"
+        data = {"body": comment_body}
+
+        await client._request("POST", endpoint, json=data)
+
+    except Exception:
+        # Silently ignore errors - commenting is best-effort
+        pass
+
+
+async def create_file_fix_comment(
+    client: GitHubClient,
+    owner: str,
+    repo: str,
+    pr_number: int,
+    result: GitHubFixResult,
+    command_args: dict[str, Any],
+) -> None:
+    """Create a comment on the PR summarizing the file fixes applied.
+
+    Args:
+        client: GitHub API client
+        owner: Repository owner
+        repo: Repository name
+        pr_number: PR number
+        result: GitHubFixResult with file modifications
+        command_args: Dictionary of command-line arguments used
+    """
+    try:
+        # Build the command invocation
+        cmd_parts = [f"pull-request-fixer {owner}/{repo}"]
+        cmd_parts.append("--fix-files")
+
+        if command_args.get("file_pattern"):
+            cmd_parts.append(f"--file-pattern '{command_args['file_pattern']}'")
+        if command_args.get("search_pattern"):
+            cmd_parts.append(
+                f"--search-pattern '{command_args['search_pattern']}'"
+            )
+        if command_args.get("replacement"):
+            cmd_parts.append(f"--replacement '{command_args['replacement']}'")
+        if command_args.get("remove_lines"):
+            cmd_parts.append("--remove-lines")
+        if command_args.get("context_start"):
+            cmd_parts.append(
+                f"--context-start '{command_args['context_start']}'"
+            )
+        if command_args.get("context_end"):
+            cmd_parts.append(f"--context-end '{command_args['context_end']}'")
+
+        command = " \\\n  ".join(cmd_parts)
+
+        # Count total diff lines
+        total_diff_lines = sum(
+            len(mod.diff.split("\n")) for mod in result.file_modifications
+        )
+
+        # Build the comment body
+        lines = [
+            "## 🛠️ Pull Request Fixer",
+            "",
+            "Automatically fixed files in this pull request:",
+            "",
+            "```bash",
+            command,
+            "```",
+            "",
+        ]
+
+        # If total diff is under 40 lines, show full diffs
+        if total_diff_lines <= 40:
+            for modification in result.file_modifications:
+                try:
+                    display_path = modification.file_path.name
+                except Exception:
+                    display_path = str(modification.file_path)
+
+                lines.append(f"🔀 {display_path}")
+                lines.append("```diff")
+                lines.append(modification.diff)
+                lines.append("```")
+                lines.append("")
+        else:
+            # Just show file list
+            file_count = len(result.file_modifications)
+            lines.append(f"**{file_count} file(s) changed:**")
+            lines.append("")
+
+            for modification in result.file_modifications:
+                try:
+                    display_path = modification.file_path.name
+                except Exception:
+                    display_path = str(modification.file_path)
+
+                lines.append(f"🔀 {display_path}")
+
+            lines.append("")
+
+        lines.extend(
+            [
                 "---",
                 "*This fix was automatically applied by "
                 "[pull-request-fixer](https://github.com/lfit/pull-request-fixer)*",
