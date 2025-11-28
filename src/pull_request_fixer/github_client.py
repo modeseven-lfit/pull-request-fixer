@@ -261,6 +261,283 @@ class GitHubClient:
             msg = f"Failed to decode file content: {e}"
             raise FileAccessError(msg) from e
 
+    async def create_blob(
+        self,
+        owner: str,
+        repo: str,
+        content: str,
+    ) -> str:
+        """Create a blob object in the repository.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            content: File content
+
+        Returns:
+            SHA of created blob
+
+        Raises:
+            FileAccessError: If blob creation fails
+        """
+        content_b64 = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+
+        result = await self._request(
+            "POST",
+            f"/repos/{owner}/{repo}/git/blobs",
+            json={
+                "content": content_b64,
+                "encoding": "base64",
+            },
+        )
+
+        if not isinstance(result, dict):
+            msg = f"Unexpected response type for blob creation: {type(result)}"
+            raise FileAccessError(msg)
+
+        sha = result.get("sha", "")
+        if not sha:
+            msg = "No SHA returned from blob creation"
+            raise FileAccessError(msg)
+
+        return str(sha)
+
+    async def get_reference(
+        self,
+        owner: str,
+        repo: str,
+        ref: str,
+    ) -> dict[str, Any]:
+        """Get a Git reference.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            ref: Reference name (e.g., 'heads/main')
+
+        Returns:
+            Reference data including commit SHA
+
+        Raises:
+            FileAccessError: If reference cannot be retrieved
+        """
+        result = await self._request(
+            "GET",
+            f"/repos/{owner}/{repo}/git/ref/{ref}",
+        )
+
+        if not isinstance(result, dict):
+            msg = f"Unexpected response type for reference: {type(result)}"
+            raise FileAccessError(msg)
+
+        return result
+
+    async def create_tree(
+        self,
+        owner: str,
+        repo: str,
+        base_tree: str,
+        tree_items: list[dict[str, Any]],
+    ) -> str:
+        """Create a tree object in the repository.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            base_tree: SHA of base tree
+            tree_items: List of tree items with path, mode, type, and sha
+
+        Returns:
+            SHA of created tree
+
+        Raises:
+            FileAccessError: If tree creation fails
+        """
+        result = await self._request(
+            "POST",
+            f"/repos/{owner}/{repo}/git/trees",
+            json={
+                "base_tree": base_tree,
+                "tree": tree_items,
+            },
+        )
+
+        if not isinstance(result, dict):
+            msg = f"Unexpected response type for tree creation: {type(result)}"
+            raise FileAccessError(msg)
+
+        sha = result.get("sha", "")
+        if not sha:
+            msg = "No SHA returned from tree creation"
+            raise FileAccessError(msg)
+
+        return str(sha)
+
+    async def create_commit(
+        self,
+        owner: str,
+        repo: str,
+        message: str,
+        tree: str,
+        parents: list[str],
+    ) -> str:
+        """Create a commit object in the repository.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            message: Commit message
+            tree: SHA of tree
+            parents: List of parent commit SHAs
+
+        Returns:
+            SHA of created commit
+
+        Raises:
+            FileAccessError: If commit creation fails
+        """
+        result = await self._request(
+            "POST",
+            f"/repos/{owner}/{repo}/git/commits",
+            json={
+                "message": message,
+                "tree": tree,
+                "parents": parents,
+            },
+        )
+
+        if not isinstance(result, dict):
+            msg = (
+                f"Unexpected response type for commit creation: {type(result)}"
+            )
+            raise FileAccessError(msg)
+
+        sha = result.get("sha", "")
+        if not sha:
+            msg = "No SHA returned from commit creation"
+            raise FileAccessError(msg)
+
+        return str(sha)
+
+    async def update_reference(
+        self,
+        owner: str,
+        repo: str,
+        ref: str,
+        sha: str,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Update a Git reference to point to a new commit.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            ref: Reference name (e.g., 'heads/main')
+            sha: New commit SHA
+            force: Whether to force the update
+
+        Returns:
+            Updated reference data
+
+        Raises:
+            FileAccessError: If reference update fails
+        """
+        result = await self._request(
+            "PATCH",
+            f"/repos/{owner}/{repo}/git/refs/{ref}",
+            json={
+                "sha": sha,
+                "force": force,
+            },
+        )
+
+        if not isinstance(result, dict):
+            msg = (
+                f"Unexpected response type for reference update: {type(result)}"
+            )
+            raise FileAccessError(msg)
+
+        return result
+
+    async def update_files_in_batch(
+        self,
+        owner: str,
+        repo: str,
+        branch: str,
+        files: list[dict[str, str]],
+        commit_message: str,
+    ) -> str:
+        """Update multiple files in a single commit using Git Data API.
+
+        This is more efficient than updating files one by one, as it:
+        1. Creates all blobs in parallel
+        2. Creates a single tree with all changes
+        3. Creates a single commit
+        4. Updates the branch reference once
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            branch: Branch name (without 'refs/heads/' prefix)
+            files: List of dicts with 'path' and 'content' keys
+            commit_message: Commit message for the batch update
+
+        Returns:
+            SHA of created commit
+
+        Raises:
+            FileAccessError: If batch update fails
+        """
+        # Get current branch reference
+        ref_data = await self.get_reference(owner, repo, f"heads/{branch}")
+        current_commit_sha = ref_data["object"]["sha"]
+
+        # Get current commit to get tree SHA
+        commit_data = await self._request(
+            "GET",
+            f"/repos/{owner}/{repo}/git/commits/{current_commit_sha}",
+        )
+        if not isinstance(commit_data, dict):
+            msg = "Failed to get commit data"
+            raise FileAccessError(msg)
+
+        base_tree_sha = commit_data["tree"]["sha"]
+
+        # Create blobs for all files in parallel for better performance
+        import asyncio
+
+        async def create_blob_for_file(
+            file_info: dict[str, str],
+        ) -> dict[str, Any]:
+            """Create blob and return tree item."""
+            blob_sha = await self.create_blob(owner, repo, file_info["content"])
+            return {
+                "path": file_info["path"],
+                "mode": "100644",  # Regular file
+                "type": "blob",
+                "sha": blob_sha,
+            }
+
+        # Create all blobs concurrently
+        tree_items = await asyncio.gather(
+            *[create_blob_for_file(file_info) for file_info in files]
+        )
+
+        # Create tree with all changes
+        tree_sha = await self.create_tree(
+            owner, repo, base_tree_sha, tree_items
+        )
+
+        # Create commit
+        commit_sha = await self.create_commit(
+            owner, repo, commit_message, tree_sha, [current_commit_sha]
+        )
+
+        # Update branch reference
+        await self.update_reference(owner, repo, f"heads/{branch}", commit_sha)
+
+        return commit_sha
+
     async def update_file(
         self,
         owner: str,
