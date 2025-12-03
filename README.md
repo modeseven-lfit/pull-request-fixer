@@ -158,6 +158,40 @@ Fixes files in pull requests using regex-based search and replace. This feature:
 
 - `--show-diff`: Show unified diff output for file changes
 
+#### Update Methods (for `--fix-files` only)
+
+The tool supports two methods for applying file fixes:
+
+**API Method (default)** - Uses GitHub API to create new commits:
+
+```bash
+pull-request-fixer https://github.com/owner/repo/pull/123 \
+  --fix-files \
+  --file-pattern './action.yaml' \
+  --search-pattern 'pattern'
+```
+
+- Creates new commits via GitHub API
+- Shows as "Verified" by GitHub
+- No Git operations required
+- Faster and simpler
+- Default method for ease of use
+
+**Git Method** - Clones repo, amends commit, force-pushes:
+
+```bash
+pull-request-fixer https://github.com/owner/repo/pull/123 \
+  --fix-files \
+  --update-method git \
+  --file-pattern './action.yaml' \
+  --search-pattern 'pattern'
+```
+
+- Respects your local Git signing configuration
+- Amends the existing commit (preserves commit history)
+- Requires Git operations (clone, amend, push)
+- Use when you need to amend commits or use your own signature
+
 **Example - Remove type definitions from GitHub Actions:**
 
 ```bash

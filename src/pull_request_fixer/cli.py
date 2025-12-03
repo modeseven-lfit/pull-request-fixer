@@ -16,6 +16,7 @@ from rich.logging import RichHandler
 import typer
 
 from ._version import __version__
+from .git_config import GitConfigMode
 from .github_client import GitHubClient
 from .models import GitHubFixResult  # noqa: TC001
 from .pr_scanner import PRScanner  # noqa: TC003
@@ -205,6 +206,22 @@ def main(
         "--show-diff",
         help="Show diff output for file changes",
     ),
+    update_method: str = typer.Option(
+        "api",
+        "--update-method",
+        help="Method to apply file fixes: 'git' (clone, amend, push) or 'api' (GitHub API commits, default) - only applies to --fix-files. If used without --fix-files, this option has no effect.",
+        case_sensitive=False,
+    ),
+    no_user_signing: bool = typer.Option(
+        False,
+        "--no-user-signing",
+        help="Use user identity but disable commit signing (only applies to 'git' method with --fix-files)",
+    ),
+    bot_identity: bool = typer.Option(
+        False,
+        "--bot-identity",
+        help="Use bot identity without signing (only applies to 'git' method with --fix-files)",
+    ),
     include_drafts: bool = typer.Option(
         False,
         "--include-drafts",
@@ -260,15 +277,28 @@ def main(
     - An entire organization: Scans for all blocked pull requests
     - A specific PR: Processes only that pull request
 
+    Update Methods (for --fix-files only):
+    - 'api' (default): Use GitHub API to create new commits (shows as verified by GitHub)
+    - 'git': Clone repo, amend commit, force-push (respects signing)
+
+    Git Identity & Signing (only applies to 'git' update method with --fix-files):
+    - By default, uses your git user.name, user.email, and commit signing settings
+    - --no-user-signing: Use your identity but disable commit signing
+    - --bot-identity: Use bot identity without signing
+
     Examples:
       pull-request-fixer myorg --fix-title --fix-body
       pull-request-fixer https://github.com/myorg --fix-title --dry-run
       pull-request-fixer https://github.com/owner/repo/pull/123 --fix-title
       pull-request-fixer myorg --fix-title --workers 8 --verbose
 
-      # Fix files with regex:
-      pull-request-fixer <PR-URL> --fix-files --file-pattern './action.yaml' \\
+      # Fix files with regex (API method, default):
+      pull-request-fixer <PR-URL> --fix-files --file-pattern './action.yaml' \
         --search-pattern 'type:' --remove-lines --context-start 'inputs:' --context-end 'runs:'
+
+      # Fix files with git method (uses local signing):
+      pull-request-fixer <PR-URL> --fix-files --update-method git \
+        --file-pattern './action.yaml' --search-pattern 'type:' --remove-lines
     """
     # If no target provided, show help
     if target is None:
@@ -287,6 +317,29 @@ def main(
         raise typer.Exit(1)
 
     setup_logging(log_level=log_level, quiet=quiet, verbose=verbose)
+
+    # Normalize and validate update method
+    normalized_update_method = update_method.lower()
+    if normalized_update_method not in ["git", "api"]:
+        console.print(
+            f"[red]Error:[/red] Invalid update method '{update_method}' "
+            f"(normalized to '{normalized_update_method}'). Use 'git' or 'api'"
+        )
+        raise typer.Exit(1)
+
+    # Determine git config mode from CLI flags (only relevant for git method)
+    if bot_identity and no_user_signing:
+        console.print(
+            "[red]Error:[/red] Cannot use both --bot-identity and --no-user-signing"
+        )
+        raise typer.Exit(1)
+
+    if bot_identity:
+        git_config_mode = GitConfigMode.BOT_IDENTITY
+    elif no_user_signing:
+        git_config_mode = GitConfigMode.USER_NO_SIGN
+    else:
+        git_config_mode = GitConfigMode.USER_INHERIT
 
     # Validate that at least one fix option is enabled
     if not fix_title and not fix_body and not fix_files:
@@ -352,7 +405,12 @@ def main(
                 context_end=context_end,
                 blocked_only=blocked_only,
                 dry_run=dry_run,
+                show_diff=show_diff,
                 quiet=quiet,
+                git_config_mode=git_config_mode,
+                update_method=normalized_update_method,
+                bot_identity=bot_identity,
+                no_user_signing=no_user_signing,
             )
         )
     else:
@@ -361,6 +419,8 @@ def main(
             scan_and_fix_organization(
                 org=target_value,
                 token=token,
+                include_drafts=include_drafts,
+                blocked_only=blocked_only,
                 fix_title=fix_title,
                 fix_body=fix_body,
                 fix_files=fix_files,
@@ -370,12 +430,12 @@ def main(
                 remove_lines=remove_lines,
                 context_start=context_start,
                 context_end=context_end,
-                show_diff=show_diff,
-                include_drafts=include_drafts,
-                blocked_only=blocked_only,
                 dry_run=dry_run,
+                show_diff=show_diff,
                 workers=workers,
                 quiet=quiet,
+                git_config_mode=git_config_mode,
+                update_method=normalized_update_method,
             )
         )
 
@@ -393,8 +453,14 @@ async def process_single_pr(
     context_start: str | None,
     context_end: str | None,
     blocked_only: bool,
+    *,
     dry_run: bool,
+    show_diff: bool,
     quiet: bool,
+    git_config_mode: str,
+    update_method: str,
+    bot_identity: bool,
+    no_user_signing: bool,
 ) -> None:
     """Process a single PR by URL.
 
@@ -424,6 +490,22 @@ async def process_single_pr(
         if fix_files:
             fixes.append("files")
         console.print(f"🔧 Will fix: {', '.join(fixes)}")
+        if fix_files:
+            method_desc = (
+                "Git clone/amend/push"
+                if update_method == "git"
+                else "GitHub API commits"
+            )
+            console.print(f"📝 File update method: {method_desc}")
+            if update_method == "git":
+                if bot_identity:
+                    console.print("🤖 Git identity: Bot (pull-request-fixer)")
+                elif no_user_signing:
+                    console.print("👤 Git identity: User (signing disabled)")
+                else:
+                    console.print(
+                        "👤 Git identity: User (inheriting signing config)"
+                    )
         if dry_run:
             console.print("🏃 Dry run mode: no changes will be applied")
         console.print()
@@ -512,7 +594,7 @@ async def process_single_pr(
                 if not quiet:
                     console.print("📝 Fixing files in PR...")
 
-                fixer = PRFileFixer(client)
+                fixer = PRFileFixer(client, git_config_mode=git_config_mode)
                 result: GitHubFixResult = await fixer.fix_pr_by_url(
                     pr_url,
                     file_pattern,
@@ -522,6 +604,7 @@ async def process_single_pr(
                     context_start=context_start,
                     context_end=context_end,
                     dry_run=dry_run,
+                    update_method=update_method,
                 )
 
                 if not quiet:
@@ -541,12 +624,15 @@ async def process_single_pr(
                             emoji = "📂" if dry_run else "🔀"
                             console.print(f"{emoji} {display_path}")
 
-                            # Always show diff (in dry-run mode or regular mode)
-                            diff_output = modification.diff
-                            if diff_output:
-                                console.print(
-                                    diff_output, highlight=False, markup=False
-                                )
+                            # Show diff if requested
+                            if show_diff:
+                                diff_output = modification.diff
+                                if diff_output:
+                                    console.print(
+                                        diff_output,
+                                        highlight=False,
+                                        markup=False,
+                                    )
                     else:
                         console.print(f"[yellow]⚠️  {result.message}[/yellow]")
                         if result.error:
@@ -658,6 +744,8 @@ async def scan_and_fix_organization(
     dry_run: bool,
     workers: int,
     quiet: bool,
+    git_config_mode: str,
+    update_method: str,
 ) -> None:
     """Scan organization for PRs needing fixes and fix them.
 
@@ -782,7 +870,28 @@ async def scan_and_fix_organization(
             if fix_files and file_pattern and search_pattern:
                 from .pr_file_fixer import PRFileFixer
 
-                fixer = PRFileFixer(client)
+                fixer = PRFileFixer(client, git_config_mode=git_config_mode)
+
+                # Inform about update method
+                if not quiet:
+                    method_desc = (
+                        "Git clone/amend/push"
+                        if update_method == "git"
+                        else "GitHub API commits"
+                    )
+                    console.print(f"\n📝 File update method: {method_desc}")
+                    if update_method == "git":
+                        if git_config_mode == GitConfigMode.BOT_IDENTITY:
+                            console.print("🤖 Git identity: Bot")
+                        elif git_config_mode == GitConfigMode.USER_NO_SIGN:
+                            console.print(
+                                "👤 Git identity: User (signing disabled)"
+                            )
+                        else:
+                            console.print(
+                                "👤 Git identity: User (inheriting signing config)"
+                            )
+                    console.print()
 
                 for owner, repo_name, pr_data in prs_to_process:
                     pr_number = pr_data.get("number", 0)
@@ -801,6 +910,7 @@ async def scan_and_fix_organization(
                                 context_start=context_start,
                                 context_end=context_end,
                                 dry_run=dry_run,
+                                update_method=update_method,
                             )
 
                             pr_id = f"{owner}/{repo_name}#{pr_number}"
