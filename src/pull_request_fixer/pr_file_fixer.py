@@ -566,7 +566,10 @@ class PRFileFixer:
             matching_files = [
                 f
                 for f in files
-                if pattern.search(f.get("filename", ""))
+                if (
+                    pattern.search(f.get("filename", ""))
+                    or pattern.search(f"./{f.get('filename', '')}")
+                )
                 and f.get("status") != "removed"
             ]
 

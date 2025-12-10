@@ -284,6 +284,52 @@ runs:
         mock_client.get_file_content.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_file_pattern_with_dot_slash_prefix(
+        self,
+        pr_fixer: PRFileFixer,
+        mock_client: Mock,
+        pr_info: PRInfo,
+        pr_data: dict[str, Any],
+    ) -> None:
+        """Test that file patterns with './' prefix match correctly."""
+        # Setup
+        mock_client.get_pr_files.return_value = [
+            {"filename": "action.yaml", "sha": "file123", "status": "modified"}
+        ]
+        mock_client.get_file_content.return_value = "old_value: test\n"
+        mock_client.update_files_in_batch.return_value = None
+        mock_client.create_comment.return_value = {"id": 1}
+
+        # Execute - using a pattern with './' prefix (should match 'action.yaml')
+        result = await pr_fixer._fix_pr_with_api(
+            pr_info=pr_info,
+            owner="owner",
+            repo="repo",
+            pr_data=pr_data,
+            file_pattern=r"^\./action\.yaml$",
+            search_pattern=r"old_value",
+            replacement="new_value",
+            dry_run=False,
+        )
+
+        # Verify
+        assert result.success is True
+        assert result.message == "Updated 1 file"
+        assert len(result.files_modified) == 1
+        assert result.files_modified[0] == Path("action.yaml")
+        assert len(result.file_modifications) == 1
+        assert "new_value" in result.file_modifications[0].modified_content
+        assert "old_value" not in result.file_modifications[0].modified_content
+
+        # Verify API calls
+        mock_client.get_pr_files.assert_called_once_with("owner", "repo", 123)
+        mock_client.get_file_content.assert_called_once_with(
+            "owner", "repo", "action.yaml", "feature-branch"
+        )
+        mock_client.update_files_in_batch.assert_called_once()
+        mock_client.create_comment.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_no_changes_needed(
         self,
         pr_fixer: PRFileFixer,
