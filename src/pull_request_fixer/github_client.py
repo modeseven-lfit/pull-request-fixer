@@ -9,9 +9,14 @@ import base64
 from typing import Any
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_not_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
-from .exceptions import FileAccessError
+from .exceptions import FileAccessError, ResourceNotFoundError
 
 
 class GitHubClient:
@@ -88,9 +93,10 @@ class GitHubClient:
             msg = f"Token validation failed: {e}"
             raise FileAccessError(msg) from e
 
-    @retry(  # type: ignore[misc]
+    @retry(  # type: ignore[untyped-decorator]
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_not_exception_type(ResourceNotFoundError),
     )
     async def _request(
         self,
@@ -125,15 +131,20 @@ class GitHubClient:
                 result: dict[str, Any] | list[dict[str, Any]] = response.json()
                 return result
             except httpx.HTTPStatusError as e:
+                # Don't retry 404 errors - they won't succeed on retry
+                if e.response.status_code == 404:
+                    msg = f"Resource not found: {e.response.text}"
+                    raise ResourceNotFoundError(msg) from e
                 msg = f"GitHub API error: {e.response.status_code} - {e.response.text}"
                 raise FileAccessError(msg) from e
             except httpx.RequestError as e:
                 msg = f"Request failed: {e}"
                 raise FileAccessError(msg) from e
 
-    @retry(  # type: ignore[misc]
+    @retry(  # type: ignore[untyped-decorator]
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_not_exception_type(ResourceNotFoundError),
     )
     async def _graphql_request(
         self,

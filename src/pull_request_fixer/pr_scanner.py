@@ -72,6 +72,7 @@ class PRScanner:
         self,
         organization: str,
         include_drafts: bool = False,
+        blocked_only: bool = False,
     ) -> AsyncIterator[tuple[str, str, dict[str, Any]]]:
         """Scan an organization for pull requests.
 
@@ -81,6 +82,7 @@ class PRScanner:
         Args:
             organization: Organization name to scan
             include_drafts: Whether to include draft PRs
+            blocked_only: Whether to only yield blocked/unmergeable PRs
 
         Yields:
             Tuples of (owner, repo_name, pr_data) where pr_data is a dict
@@ -106,7 +108,7 @@ class PRScanner:
 
         # Second pass: scan repositories with bounded parallelism
         async for owner, repo_name, pr_data in self._scan_repositories(
-            organization, include_drafts
+            organization, include_drafts, blocked_only
         ):
             yield owner, repo_name, pr_data
 
@@ -155,12 +157,14 @@ class PRScanner:
         self,
         organization: str,
         include_drafts: bool,
+        blocked_only: bool,
     ) -> AsyncIterator[tuple[str, str, dict[str, Any]]]:
         """Scan repositories in an organization for PRs.
 
         Args:
             organization: Organization name
             include_drafts: Whether to include draft PRs
+            blocked_only: Whether to only yield blocked/unmergeable PRs
 
         Yields:
             Tuples of (owner, repo_name, pr_data)
@@ -182,6 +186,7 @@ class PRScanner:
                 try:
                     owner, repo_name = self._split_owner_repo(repo_full_name)
                     pr_count = 0
+                    blocked_count = 0
 
                     # Fetch first page of PRs
                     (
@@ -192,8 +197,18 @@ class PRScanner:
                     # Process first page PRs
                     for pr_node in first_nodes:
                         if self._should_include_pr(pr_node, include_drafts):
-                            await pr_queue.put((owner, repo_name, pr_node))
                             pr_count += 1
+                            # Check if PR is blocked (only when filtering is enabled)
+                            if blocked_only:
+                                is_blocked, _ = self.is_pr_blocked(pr_node)
+                                if is_blocked:
+                                    blocked_count += 1
+                                    await pr_queue.put(
+                                        (owner, repo_name, pr_node)
+                                    )
+                            else:
+                                # Not filtering, yield all PRs
+                                await pr_queue.put((owner, repo_name, pr_node))
 
                     # Process additional pages if present
                     has_next = page_info.get("hasNextPage", False)
@@ -204,14 +219,33 @@ class PRScanner:
                             owner, repo_name, end_cursor
                         ):
                             if self._should_include_pr(pr_node, include_drafts):
-                                await pr_queue.put((owner, repo_name, pr_node))
                                 pr_count += 1
+                                # Check if PR is blocked (only when filtering is enabled)
+                                if blocked_only:
+                                    is_blocked, _ = self.is_pr_blocked(pr_node)
+                                    if is_blocked:
+                                        blocked_count += 1
+                                        await pr_queue.put(
+                                            (owner, repo_name, pr_node)
+                                        )
+                                else:
+                                    # Not filtering, yield all PRs
+                                    await pr_queue.put(
+                                        (owner, repo_name, pr_node)
+                                    )
 
                     if self.progress_tracker:
-                        self.progress_tracker.complete_repository(pr_count)
+                        # Only report blocked count when filtering to blocked PRs
+                        # Otherwise report 0 to avoid misleading progress display
+                        if blocked_only:
+                            self.progress_tracker.complete_repository(
+                                blocked_count
+                            )
+                        else:
+                            self.progress_tracker.complete_repository(0)
 
                     self.logger.debug(
-                        f"Repository {repo_full_name}: found {pr_count} PRs"
+                        f"Repository {repo_full_name}: found {pr_count} PRs ({blocked_count} blocked)"
                     )
 
                 except Exception as e:
@@ -461,10 +495,25 @@ class PRScanner:
         """
         blocking_reasons: list[str] = []
 
-        # Check mergeable state
-        mergeable = pr.get("mergeable", "UNKNOWN")
+        # Check mergeable state (uppercase enum from GraphQL)
+        mergeable = (pr.get("mergeable") or "").upper()
         if mergeable == "CONFLICTING":
             blocking_reasons.append("Merge conflicts")
+
+        # Check merge state status (lowercase from GraphQL)
+        merge_state = (pr.get("mergeStateStatus") or "").lower()
+
+        # Check for merge conflicts via merge_state as well
+        if merge_state == "dirty" and "Merge conflicts" not in blocking_reasons:
+            blocking_reasons.append("Merge conflicts")
+
+        # Check if behind base branch
+        if merge_state == "behind":
+            blocking_reasons.append("Behind base branch")
+
+        # Check if blocked by branch protection rules
+        if merge_state == "blocked":
+            blocking_reasons.append("Blocked by branch protection rules")
 
         # Check for failing status checks
         failing_checks = self._extract_failing_checks(pr)
@@ -472,13 +521,6 @@ class PRScanner:
             blocking_reasons.append(
                 f"Failing checks: {', '.join(failing_checks)}"
             )
-
-        # Check merge state status
-        merge_state = pr.get("mergeStateStatus", "UNKNOWN")
-        if merge_state == "BLOCKED":
-            blocking_reasons.append("Blocked by branch protection rules")
-        elif merge_state == "BEHIND":
-            blocking_reasons.append("Behind base branch")
 
         return len(blocking_reasons) > 0, blocking_reasons
 

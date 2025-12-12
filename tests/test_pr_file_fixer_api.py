@@ -100,6 +100,7 @@ class TestFixPRWithAPI:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify
@@ -157,6 +158,7 @@ runs:
             context_start=r"inputs:",
             context_end=r"runs:",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify
@@ -203,6 +205,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify
@@ -238,6 +241,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=True,
+            pr_content_only=True,
         )
 
         # Verify
@@ -274,6 +278,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify
@@ -310,6 +315,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify
@@ -354,6 +360,7 @@ runs:
             search_pattern=r"nonexistent",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify
@@ -390,6 +397,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify - only other.yaml should be processed
@@ -426,6 +434,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify - only test3.yaml should be processed
@@ -470,6 +479,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify - file2.yaml should still be processed
@@ -499,6 +509,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify
@@ -531,6 +542,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify token is redacted
@@ -565,6 +577,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify
@@ -615,6 +628,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify - fallback should skip the file when refetch returns unexpected data
@@ -651,6 +665,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify
@@ -694,6 +709,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify - operation should still succeed
@@ -730,6 +746,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify
@@ -773,6 +790,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify
@@ -813,6 +831,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify singular
@@ -835,6 +854,7 @@ runs:
             search_pattern=r"old_value",
             replacement="new_value",
             dry_run=False,
+            pr_content_only=True,
         )
 
         # Verify plural

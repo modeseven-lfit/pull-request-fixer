@@ -18,6 +18,12 @@ class FileAccessError(PRTitleFixerError):
     pass
 
 
+class ResourceNotFoundError(PRTitleFixerError):
+    """Resource not found (404 error)."""
+
+    pass
+
+
 class GitHubAPIError(PRTitleFixerError):
     """Error communicating with GitHub API."""
 
