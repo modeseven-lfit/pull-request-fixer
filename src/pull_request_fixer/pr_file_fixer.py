@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from .github_client import GitHubClient
     from .models import PRInfo
 
+from .exceptions import ResourceNotFoundError
 from .git_config import GitConfigMode, configure_git_identity
 from .models import GitHubFixResult
 
@@ -68,7 +69,7 @@ class PRFileFixer:
 
         return sanitized
 
-    async def fix_pr_by_url(
+    async def fix_pr_by_url(  # noqa: PLR0911
         self,
         pr_url: str,
         file_pattern: str,
@@ -80,6 +81,7 @@ class PRFileFixer:
         context_end: str | None = None,
         dry_run: bool = False,
         update_method: str = "api",
+        pr_content_only: bool = False,
     ) -> GitHubFixResult:
         """Fix files in a PR by URL.
 
@@ -93,6 +95,7 @@ class PRFileFixer:
             context_end: Optional regex to define context end for line removal
             dry_run: If True, don't actually push changes
             update_method: Method to apply fixes: 'git' (clone, amend, push) or 'api' (GitHub API commits)
+            pr_content_only: If True, only fix files already modified in the PR
 
         Returns:
             GitHubFixResult with operation details
@@ -129,11 +132,16 @@ class PRFileFixer:
 
         try:
             # Get PR details
-            pr_data = await self.client._request(
-                "GET", f"/repos/{owner}/{repo}/pulls/{pr_number}"
-            )
+            error_message = None
+            try:
+                pr_data = await self.client._request(
+                    "GET", f"/repos/{owner}/{repo}/pulls/{pr_number}"
+                )
+            except ResourceNotFoundError:
+                # PR not found (404) - provide friendly message
+                error_message = f"Pull request #{pr_number} not found. It may have been closed, merged, or deleted."
 
-            if not isinstance(pr_data, dict):
+            if error_message or not isinstance(pr_data, dict):
                 return GitHubFixResult(
                     pr_info=PRInfo(
                         number=pr_number,
@@ -149,7 +157,7 @@ class PRFileFixer:
                         merge_state_status="",
                     ),
                     success=False,
-                    message="Failed to fetch PR data",
+                    message=error_message or "Failed to fetch PR data",
                 )
 
             head = pr_data.get("head", {})
@@ -195,6 +203,7 @@ class PRFileFixer:
                     context_start=context_start,
                     context_end=context_end,
                     dry_run=dry_run,
+                    pr_content_only=pr_content_only,
                 )
             else:
                 # Clone and fix using Git operations
@@ -210,6 +219,7 @@ class PRFileFixer:
                     context_start=context_start,
                     context_end=context_end,
                     dry_run=dry_run,
+                    pr_content_only=pr_content_only,
                 )
 
         except Exception as e:
@@ -248,6 +258,7 @@ class PRFileFixer:
         context_end: str | None = None,
         dry_run: bool = False,
         git_config_mode: str | None = None,
+        pr_content_only: bool = False,
     ) -> GitHubFixResult:
         """Fix PR using Git operations (clone, fix, amend, push).
 
@@ -264,6 +275,7 @@ class PRFileFixer:
             context_end: Optional context end for line removal
             dry_run: If True, don't push changes
             git_config_mode: Override git config mode for this operation
+            pr_content_only: If True, only fix files already modified in the PR
 
         Returns:
             GitHubFixResult with operation details
@@ -302,11 +314,30 @@ class PRFileFixer:
 
                 # Find and fix files
                 fixer = FileFixer()
-                matching_files = fixer.find_files(repo_dir, file_pattern)
+                all_matching_files = fixer.find_files(repo_dir, file_pattern)
 
-                self.logger.debug(
-                    f"Found {len(matching_files)} files matching pattern"
-                )
+                # Filter to PR files only if pr_content_only is True
+                if pr_content_only:
+                    # Get the list of files changed in this PR
+                    pr_files = await self.client.get_pr_files(
+                        owner, repo, pr_info.number
+                    )
+                    pr_file_paths = {f.get("filename", "") for f in pr_files}
+
+                    matching_files = [
+                        f
+                        for f in all_matching_files
+                        if str(f.relative_to(repo_dir)) in pr_file_paths
+                    ]
+                    self.logger.debug(
+                        f"Found {len(all_matching_files)} files matching pattern, "
+                        f"{len(matching_files)} are in PR"
+                    )
+                else:
+                    matching_files = all_matching_files
+                    self.logger.debug(
+                        f"Found {len(matching_files)} files matching pattern"
+                    )
 
                 files_modified: list[Path] = []
                 file_modifications: list[FileModification] = []
@@ -526,6 +557,7 @@ class PRFileFixer:
         context_start: str | None = None,
         context_end: str | None = None,
         dry_run: bool = False,
+        pr_content_only: bool = False,
     ) -> GitHubFixResult:
         """
         Fix PR using GitHub API (creates new commits).
@@ -548,6 +580,7 @@ class PRFileFixer:
             context_start: Optional context start for line removal
             context_end: Optional context end for line removal
             dry_run: If True, don't actually push changes
+            pr_content_only: If True, only fix files already modified in the PR
 
         Returns:
             GitHubFixResult with operation details
@@ -559,19 +592,78 @@ class PRFileFixer:
         pr_number = pr_info.number
 
         try:
-            # Get files from the PR
-            files = await self.client.get_pr_files(owner, repo, pr_number)
-
             pattern = re.compile(file_pattern)
-            matching_files = [
-                f
-                for f in files
-                if (
-                    pattern.search(f.get("filename", ""))
-                    or pattern.search(f"./{f.get('filename', '')}")
+
+            if pr_content_only:
+                # Get files from the PR only
+                files = await self.client.get_pr_files(owner, repo, pr_number)
+
+                # Debug: Log all files and their status
+                self.logger.debug(f"Total files from PR: {len(files)}")
+                for f in files:
+                    filename = f.get("filename", "")
+                    status = f.get("status")
+                    self.logger.debug(f"  File: {filename}, status: {status!r}")
+
+                matching_files = [
+                    f
+                    for f in files
+                    if (
+                        pattern.search(f.get("filename", ""))
+                        or pattern.search(f"./{f.get('filename', '')}")
+                    )
+                    and f.get("status") != "removed"
+                ]
+            else:
+                # Get all files from the repository that match the pattern
+                # We need to use the Git tree API to get all files
+
+                # Clone the PR branch to get all files
+                clone_url = (
+                    pr_data.get("head", {}).get("repo", {}).get("clone_url", "")
                 )
-                and f.get("status") != "removed"
-            ]
+                if not clone_url:
+                    return GitHubFixResult(
+                        pr_info=pr_info,
+                        success=False,
+                        message="Cannot access repository to list all files",
+                        files_modified=[],
+                        file_modifications=[],
+                    )
+
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    repo_dir = Path(tmpdir) / "repo"
+                    auth_url = clone_url.replace(
+                        "https://",
+                        f"https://x-access-token:{self.client.token}@",
+                    )
+                    subprocess.run(
+                        [
+                            "git",
+                            "clone",
+                            "--depth=1",
+                            "--branch",
+                            pr_info.head_ref,
+                            auth_url,
+                            str(repo_dir),
+                        ],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+
+                    fixer = FileFixer()
+                    file_paths = fixer.find_files(repo_dir, file_pattern)
+
+                    # Convert to format expected by rest of function
+                    matching_files = [
+                        {
+                            "filename": str(f.relative_to(repo_dir)),
+                            "sha": None,  # We'll fetch this later
+                            "status": "modified",
+                        }
+                        for f in file_paths
+                    ]
 
             self.logger.debug(
                 f"Found {len(matching_files)} files matching pattern"

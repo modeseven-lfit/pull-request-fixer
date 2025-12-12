@@ -16,6 +16,8 @@ from rich.logging import RichHandler
 import typer
 
 from ._version import __version__
+from .blocked_pr_scanner import BlockedPRScanner  # noqa: TC003
+from .exceptions import FileAccessError, GitHubAPIError, ResourceNotFoundError
 from .git_config import GitConfigMode
 from .github_client import GitHubClient
 from .models import GitHubFixResult  # noqa: TC001
@@ -201,6 +203,11 @@ def main(
         "--context-end",
         help="Regex pattern for context end (e.g., 'runs:')",
     ),
+    pr_content_only: bool = typer.Option(
+        False,
+        "--pr-content-only",
+        help="Only fix files that are already modified in the PR (default: fix all matching files in repository)",
+    ),
     show_diff: bool = typer.Option(
         False,
         "--show-diff",
@@ -227,10 +234,10 @@ def main(
         "--include-drafts",
         help="Include draft PRs in scan",
     ),
-    blocked_only: bool = typer.Option(
+    no_blocked_only: bool = typer.Option(
         False,
-        "--blocked-only",
-        help="Only process PRs that are blocked/unmergeable (failing checks, conflicts, etc.)",
+        "--no-blocked-only",
+        help="Process ALL PRs, not just blocked/unmergeable ones (default: only process blocked PRs)",
     ),
     dry_run: bool = typer.Option(
         False,
@@ -274,7 +281,7 @@ def main(
     Pull request fixer - automatically fix PR titles, bodies, and files.
 
     Can process either:
-    - An entire organization: Scans for all blocked pull requests
+    - An entire organization: By default scans only blocked pull requests (use --no-blocked-only for all PRs)
     - A specific PR: Processes only that pull request
 
     Update Methods (for --fix-files only):
@@ -403,7 +410,8 @@ def main(
                 remove_lines=remove_lines,
                 context_start=context_start,
                 context_end=context_end,
-                blocked_only=blocked_only,
+                pr_content_only=pr_content_only,
+                blocked_only=not no_blocked_only,
                 dry_run=dry_run,
                 show_diff=show_diff,
                 quiet=quiet,
@@ -420,7 +428,7 @@ def main(
                 org=target_value,
                 token=token,
                 include_drafts=include_drafts,
-                blocked_only=blocked_only,
+                blocked_only=not no_blocked_only,
                 fix_title=fix_title,
                 fix_body=fix_body,
                 fix_files=fix_files,
@@ -430,6 +438,7 @@ def main(
                 remove_lines=remove_lines,
                 context_start=context_start,
                 context_end=context_end,
+                pr_content_only=pr_content_only,
                 dry_run=dry_run,
                 show_diff=show_diff,
                 workers=workers,
@@ -452,6 +461,7 @@ async def process_single_pr(
     remove_lines: bool,
     context_start: str | None,
     context_end: str | None,
+    pr_content_only: bool,
     blocked_only: bool,
     *,
     dry_run: bool,
@@ -571,11 +581,19 @@ async def process_single_pr(
                     console.print("[red]Error:[/red] Could not fetch PR data")
                     raise typer.Exit(1)
 
-                # Check if PR is blocked
-                from .pr_scanner import PRScanner
-
-                scanner = PRScanner(client)
-                is_blocked, reason = scanner.is_pr_blocked(pr_data)
+                # Check if PR is blocked using dependamerge logic
+                blocked_scanner = BlockedPRScanner(
+                    token=token,
+                    max_repo_tasks=1,
+                )
+                try:
+                    (
+                        is_blocked,
+                        reasons,
+                    ) = await blocked_scanner._is_pr_blocked_async(pr_data)
+                    reason = "; ".join(reasons) if reasons else "Unknown"
+                finally:
+                    await blocked_scanner.close()
 
                 if not is_blocked:
                     console.print(
@@ -605,6 +623,7 @@ async def process_single_pr(
                     context_end=context_end,
                     dry_run=dry_run,
                     update_method=update_method,
+                    pr_content_only=pr_content_only,
                 )
 
                 if not quiet:
@@ -651,6 +670,7 @@ async def process_single_pr(
                             "remove_lines": remove_lines,
                             "context_start": context_start,
                             "context_end": context_end,
+                            "pr_content_only": pr_content_only,
                         }
                         await create_file_fix_comment(
                             client,
@@ -717,6 +737,14 @@ async def process_single_pr(
                         "[yellow]ℹ️  No changes needed or applied[/yellow]"
                     )
 
+    except ResourceNotFoundError as e:
+        # Resource not found (404) - show friendly message without stack trace
+        console.print(f"[yellow]⚠️  {e}[/yellow]")
+        raise typer.Exit(1) from e
+    except (FileAccessError, GitHubAPIError) as e:
+        # These are expected errors - show friendly message without stack trace
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1) from e
     except Exception as e:
         console.print(f"[red]Error processing PR:[/red] {e}")
         if not quiet:
@@ -738,6 +766,7 @@ async def scan_and_fix_organization(
     remove_lines: bool,
     context_start: str | None,
     context_end: str | None,
+    pr_content_only: bool,
     show_diff: bool,
     include_drafts: bool,
     blocked_only: bool,
@@ -770,8 +799,12 @@ async def scan_and_fix_organization(
         if fix_files:
             fixes.append("files")
         console.print(f"🔧 Will fix: {', '.join(fixes)}")
-        if blocked_only:
-            console.print("🚫 Filtering to blocked/unmergeable PRs only")
+        if not blocked_only:
+            console.print("⚠️  Processing ALL PRs (not just blocked ones)")
+        else:
+            console.print(
+                "🚫 Only processing blocked/unmergeable PRs (default)"
+            )
         if dry_run:
             console.print("🏃 Dry run mode: no changes will be applied")
 
@@ -788,7 +821,7 @@ async def scan_and_fix_organization(
                             console.print(
                                 "[yellow]⚠️  Warning: Token may not have required 'repo' scope[/yellow]"
                             )
-                        if blocked_only and "read:org" not in scopes:
+                        if "read:org" not in scopes:
                             console.print(
                                 "[yellow]⚠️  Warning: Token may not have 'read:org' scope needed for status checks[/yellow]"
                             )
@@ -810,32 +843,53 @@ async def scan_and_fix_organization(
                 None if quiet else ProgressTracker(org, show_pr_stats=True)
             )
 
-            scanner = PRScanner(
-                client,
-                progress_tracker=progress_tracker,
-                max_repo_tasks=workers,
-                max_page_tasks=workers * 2,
-            )
             # Collect PRs to process
             prs_to_process: list[tuple[str, str, dict[str, Any]]] = []
 
-            # Note: progress_tracker.start() is called by scanner after counting repos
+            # Use BlockedPRScanner (dependamerge) when filtering to blocked PRs only
+            # This ensures consistent blocking logic across both tools
             try:
-                async for (
-                    owner,
-                    repo_name,
-                    pr_data,
-                ) in scanner.scan_organization(
-                    org, include_drafts=include_drafts
-                ):
-                    # Filter by blocked status if requested
-                    if blocked_only:
-                        is_blocked, _ = scanner.is_pr_blocked(pr_data)
-                        if not is_blocked:
-                            continue
+                if blocked_only:
+                    # Use dependamerge's GitHubService for blocked PR detection
+                    blocked_scanner = BlockedPRScanner(
+                        token=token,
+                        progress_tracker=progress_tracker,
+                        max_repo_tasks=workers,
+                    )
 
-                    # Store PR info
-                    prs_to_process.append((owner, repo_name, pr_data))
+                    # Note: progress_tracker.start() is called by scanner internally
+                    try:
+                        async for (
+                            owner,
+                            repo_name,
+                            pr_data,
+                            _unmergeable_pr,
+                        ) in blocked_scanner.scan_organization_for_blocked_prs(
+                            org, include_drafts=include_drafts
+                        ):
+                            # Store PR info
+                            prs_to_process.append((owner, repo_name, pr_data))
+                    finally:
+                        await blocked_scanner.close()
+                else:
+                    # Use original PRScanner for all PRs (no blocking filter)
+                    scanner = PRScanner(
+                        client,
+                        progress_tracker=progress_tracker,
+                        max_repo_tasks=workers,
+                        max_page_tasks=workers * 2,
+                    )
+
+                    # Note: progress_tracker.start() is called by scanner after counting repos
+                    async for (
+                        owner,
+                        repo_name,
+                        pr_data,
+                    ) in scanner.scan_organization(
+                        org, include_drafts=include_drafts, blocked_only=False
+                    ):
+                        # Store PR info
+                        prs_to_process.append((owner, repo_name, pr_data))
 
             except Exception as scan_error:
                 if progress_tracker:
@@ -911,6 +965,7 @@ async def scan_and_fix_organization(
                                 context_end=context_end,
                                 dry_run=dry_run,
                                 update_method=update_method,
+                                pr_content_only=pr_content_only,
                             )
 
                             pr_id = f"{owner}/{repo_name}#{pr_number}"
@@ -978,6 +1033,7 @@ async def scan_and_fix_organization(
                                     "remove_lines": remove_lines,
                                     "context_start": context_start,
                                     "context_end": context_end,
+                                    "pr_content_only": pr_content_only,
                                 }
                                 with suppress(Exception):
                                     await create_file_fix_comment(
@@ -1670,6 +1726,8 @@ async def create_file_fix_comment(
             )
         if command_args.get("context_end"):
             cmd_parts.append(f"--context-end '{command_args['context_end']}'")
+        if command_args.get("pr_content_only"):
+            cmd_parts.append("--pr-content-only")
 
         command = " \\\n  ".join(cmd_parts)
 
