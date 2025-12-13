@@ -94,7 +94,7 @@ class PRFileFixer:
             context_start: Optional regex to define context start for line removal
             context_end: Optional regex to define context end for line removal
             dry_run: If True, don't actually push changes
-            update_method: Method to apply fixes: 'git' (clone, amend, push) or 'api' (GitHub API commits)
+            update_method: Method to apply fixes: 'git' (clone, amend, push) or 'api' (GitHub API)
             pr_content_only: If True, only fix files already modified in the PR
 
         Returns:
@@ -433,11 +433,11 @@ class PRFileFixer:
 
                 if result.returncode == 0:
                     # No changes - return early with success
-                    self.logger.info("No formatting changes needed")
+                    self.logger.debug("No formatting changes needed")
                     return GitHubFixResult(
                         pr_info=pr_info,
                         success=True,
-                        message="Files were already properly formatted",
+                        message="⏩ Files were already properly formatted",
                         files_modified=[],
                         file_modifications=[],
                     )
@@ -560,12 +560,12 @@ class PRFileFixer:
         pr_content_only: bool = False,
     ) -> GitHubFixResult:
         """
-        Fix PR using GitHub API (creates new commits).
+        Fix PR using GitHub API (updates files).
 
         Note:
-            Commits made via the GitHub API are marked as "Verified" by GitHub
+            Changes made via the GitHub API are marked as "Verified" by GitHub
             only if performed through a GitHub App with the appropriate permissions.
-            If using a personal access token, commits will not be marked as "Verified"
+            If using a personal access token, changes will not be marked as "Verified"
             unless commit signature verification is configured separately.
 
         Args:
@@ -775,7 +775,7 @@ class PRFileFixer:
                         files_to_update,
                         commit_message,
                     )
-                    self.logger.info(
+                    self.logger.debug(
                         f"Successfully updated {len(files_to_update)} files in a single commit"
                     )
                 except Exception as e:
@@ -813,7 +813,7 @@ class PRFileFixer:
                                 branch,
                                 current_sha,
                             )
-                            self.logger.info(
+                            self.logger.debug(
                                 f"Successfully updated {file_info['path']} (fallback)"
                             )
                         except Exception as file_error:

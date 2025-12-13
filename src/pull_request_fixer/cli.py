@@ -11,6 +11,7 @@ import logging
 import re
 from typing import Any
 
+from dependamerge import get_default_workers
 from rich.console import Console
 from rich.logging import RichHandler
 import typer
@@ -214,20 +215,20 @@ def main(
         help="Show diff output for file changes",
     ),
     update_method: str = typer.Option(
-        "api",
+        "git",
         "--update-method",
-        help="Method to apply file fixes: 'git' (clone, amend, push) or 'api' (GitHub API commits, default) - only applies to --fix-files. If used without --fix-files, this option has no effect.",
+        help="Method to apply file fixes: 'git' (clone, amend, push) or 'api' (GitHub API) - only applies to --fix-files. If used without --fix-files, this option has no effect.",
         case_sensitive=False,
     ),
-    no_user_signing: bool = typer.Option(
+    disable_signing: bool = typer.Option(
         False,
-        "--no-user-signing",
-        help="Use user identity but disable commit signing (only applies to 'git' method with --fix-files)",
+        "--disable-signing",
+        help="Disables commit signing (only applies to 'git' method with --fix-files)",
     ),
     bot_identity: bool = typer.Option(
         False,
         "--bot-identity",
-        help="Use bot identity without signing (only applies to 'git' method with --fix-files)",
+        help="Use bot identity instead of user (only applies to 'git' method with --fix-files, disables commit signing)",
     ),
     include_drafts: bool = typer.Option(
         False,
@@ -244,13 +245,13 @@ def main(
         "--dry-run",
         help="Preview changes without applying them",
     ),
-    workers: int = typer.Option(
-        4,
+    workers: int | None = typer.Option(
+        None,
         "--workers",
         "-j",
         min=1,
         max=32,
-        help="Number of parallel workers (default: 4)",
+        help="Number of parallel workers (auto-detects CPU cores if not specified)",
     ),
     verbose: bool = typer.Option(
         False,
@@ -285,13 +286,13 @@ def main(
     - A specific PR: Processes only that pull request
 
     Update Methods (for --fix-files only):
-    - 'api' (default): Use GitHub API to create new commits (shows as verified by GitHub)
-    - 'git': Clone repo, amend commit, force-push (respects signing)
+    - 'git' (default): Clone repo, amend commit, force-push (respects signing)
+    - 'api': Use GitHub API to update files (shows as verified by GitHub)
 
     Git Identity & Signing (only applies to 'git' update method with --fix-files):
     - By default, uses your git user.name, user.email, and commit signing settings
-    - --no-user-signing: Use your identity but disable commit signing
-    - --bot-identity: Use bot identity without signing
+    - --disable-signing: Use your identity but disable commit signing
+    - --bot-identity: Use bot identity instead of user (disables commit signing)
 
     Examples:
       pull-request-fixer myorg --fix-title --fix-body
@@ -334,16 +335,16 @@ def main(
         )
         raise typer.Exit(1)
 
-    # Determine git config mode from CLI flags (only relevant for git method)
-    if bot_identity and no_user_signing:
+    # Determine git config mode from CLI flags (only relevant for git method with --fix-files)
+    if bot_identity and disable_signing:
         console.print(
-            "[red]Error:[/red] Cannot use both --bot-identity and --no-user-signing"
+            "[red]Error:[/red] Cannot use both --bot-identity and --disable-signing"
         )
         raise typer.Exit(1)
 
     if bot_identity:
         git_config_mode = GitConfigMode.BOT_IDENTITY
-    elif no_user_signing:
+    elif disable_signing:
         git_config_mode = GitConfigMode.USER_NO_SIGN
     else:
         git_config_mode = GitConfigMode.USER_INHERIT
@@ -418,7 +419,7 @@ def main(
                 git_config_mode=git_config_mode,
                 update_method=normalized_update_method,
                 bot_identity=bot_identity,
-                no_user_signing=no_user_signing,
+                disable_signing=disable_signing,
             )
         )
     else:
@@ -441,7 +442,7 @@ def main(
                 pr_content_only=pr_content_only,
                 dry_run=dry_run,
                 show_diff=show_diff,
-                workers=workers,
+                workers=workers if workers is not None else get_default_workers(),
                 quiet=quiet,
                 git_config_mode=git_config_mode,
                 update_method=normalized_update_method,
@@ -470,7 +471,7 @@ async def process_single_pr(
     git_config_mode: str,
     update_method: str,
     bot_identity: bool,
-    no_user_signing: bool,
+    disable_signing: bool,
 ) -> None:
     """Process a single PR by URL.
 
@@ -504,13 +505,13 @@ async def process_single_pr(
             method_desc = (
                 "Git clone/amend/push"
                 if update_method == "git"
-                else "GitHub API commits"
+                else "GitHub API"
             )
             console.print(f"📝 File update method: {method_desc}")
             if update_method == "git":
                 if bot_identity:
                     console.print("🤖 Git identity: Bot (pull-request-fixer)")
-                elif no_user_signing:
+                elif disable_signing:
                     console.print("👤 Git identity: User (signing disabled)")
                 else:
                     console.print(
@@ -629,9 +630,15 @@ async def process_single_pr(
                 if not quiet:
                     console.print()
                     if result.success:
-                        console.print(f"[green]✅ {result.message}[/green]")
+                        # Check if this is a "no changes" message (starts with ⏩)
+                        if result.message.startswith("⏩"):
+                            # No changes - use green for entire message
+                            console.print(f"[green]{result.message}[/green]")
+                        else:
+                            # Files were modified - show message in green, details in orange
+                            console.print(f"[green]✅ {result.message}[/green]")
 
-                        # Show modified files with diffs
+                        # Show modified files with diffs (in orange to indicate changes)
                         for modification in result.file_modifications:
                             # Get relative path for display
                             try:
@@ -641,7 +648,7 @@ async def process_single_pr(
 
                             # Use different emoji based on dry-run status
                             emoji = "📂" if dry_run else "🔀"
-                            console.print(f"{emoji} {display_path}")
+                            console.print(f"[orange1]{emoji} {display_path}[/orange1]")
 
                             # Show diff if requested
                             if show_diff:
@@ -911,10 +918,10 @@ async def scan_and_fix_organization(
                 return
 
             if not quiet:
-                pr_type = "blocked " if blocked_only else ""
-                console.print(
-                    f"\n🔍 Processing {len(prs_to_process)} {pr_type}pull request{'s' if len(prs_to_process) != 1 else ''}...\n"
-                )
+                if blocked_only:
+                    console.print("\n🔍 Examining blocked pull requests\n")
+                else:
+                    console.print("\n🔍 Examining pull requests\n")
 
             # Phase 4: Process PRs in parallel using semaphore for concurrency control
             semaphore = asyncio.Semaphore(workers)
@@ -931,7 +938,7 @@ async def scan_and_fix_organization(
                     method_desc = (
                         "Git clone/amend/push"
                         if update_method == "git"
-                        else "GitHub API commits"
+                        else "GitHub API"
                     )
                     console.print(f"\n📝 File update method: {method_desc}")
                     if update_method == "git":
@@ -981,6 +988,7 @@ async def scan_and_fix_organization(
                             if dry_run and not quiet:
                                 # Only show output if there are actual changes or failures
                                 if result.success and result.file_modifications:
+                                    # Files were modified - show in green with orange details below
                                     console.print(
                                         f"[green]✅ {pr_id}: {result.message}[/green]"
                                     )
@@ -999,7 +1007,7 @@ async def scan_and_fix_organization(
                                             )
 
                                         emoji = "🔀"
-                                        console.print(f"{emoji} {display_path}")
+                                        console.print(f"[orange1]{emoji} {display_path}[/orange1]")
 
                                         # Always show diff in dry-run mode
                                         diff_output = modification.diff
@@ -1111,9 +1119,17 @@ async def scan_and_fix_organization(
                                 # Check if this is a file fixing result
                                 if fix_result:
                                     # File fixing result
-                                    console.print(
-                                        f"[green]✅ {pr_id}: {fix_result.message}[/green]"
-                                    )
+                                    # Check if this is a "no changes" message (starts with ⏩)
+                                    if fix_result.message.startswith("⏩"):
+                                        # No changes - use green for entire message
+                                        console.print(
+                                            f"[green]{pr_id}: {fix_result.message}[/green]"
+                                        )
+                                    else:
+                                        # Files were modified - show in green
+                                        console.print(
+                                            f"[green]✅ {pr_id}: {fix_result.message}[/green]"
+                                        )
 
                                     # Show modified files with diffs
                                     for (
@@ -1129,7 +1145,7 @@ async def scan_and_fix_organization(
                                             )
 
                                         emoji = "🔀"
-                                        console.print(f"{emoji} {display_path}")
+                                        console.print(f"[orange1]{emoji} {display_path}[/orange1]")
 
                                         if show_diff:
                                             diff_output = modification.diff

@@ -196,7 +196,7 @@ def configure_git_identity(
                 _set_repo_git_config(repo_dir, "gpg.program", gpg_program)
                 applied_config["gpg.program"] = gpg_program
 
-        logger.info(
+        logger.debug(
             f"Git signing enabled: format={gpg_format or 'openpgp'}, "
             f"key={'configured' if applied_config.get('user.signingkey') else 'default'}"
         )
