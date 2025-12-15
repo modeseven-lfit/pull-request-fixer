@@ -442,7 +442,9 @@ def main(
                 pr_content_only=pr_content_only,
                 dry_run=dry_run,
                 show_diff=show_diff,
-                workers=workers if workers is not None else get_default_workers(),
+                workers=workers
+                if workers is not None
+                else get_default_workers(),
                 quiet=quiet,
                 git_config_mode=git_config_mode,
                 update_method=normalized_update_method,
@@ -648,7 +650,9 @@ async def process_single_pr(
 
                             # Use different emoji based on dry-run status
                             emoji = "📂" if dry_run else "🔀"
-                            console.print(f"[orange1]{emoji} {display_path}[/orange1]")
+                            console.print(
+                                f"[orange1]{emoji} {display_path}[/orange1]"
+                            )
 
                             # Show diff if requested
                             if show_diff:
@@ -1007,7 +1011,9 @@ async def scan_and_fix_organization(
                                             )
 
                                         emoji = "🔀"
-                                        console.print(f"[orange1]{emoji} {display_path}[/orange1]")
+                                        console.print(
+                                            f"[orange1]{emoji} {display_path}[/orange1]"
+                                        )
 
                                         # Always show diff in dry-run mode
                                         diff_output = modification.diff
@@ -1145,7 +1151,9 @@ async def scan_and_fix_organization(
                                             )
 
                                         emoji = "🔀"
-                                        console.print(f"[orange1]{emoji} {display_path}[/orange1]")
+                                        console.print(
+                                            f"[orange1]{emoji} {display_path}[/orange1]"
+                                        )
 
                                         if show_diff:
                                             diff_output = modification.diff
