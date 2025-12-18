@@ -9,6 +9,7 @@ import asyncio
 from contextlib import suppress
 import logging
 import re
+import sys
 from typing import Any
 
 from dependamerge import get_default_workers
@@ -442,7 +443,9 @@ def main(
                 pr_content_only=pr_content_only,
                 dry_run=dry_run,
                 show_diff=show_diff,
-                workers=workers if workers is not None else get_default_workers(),
+                workers=workers
+                if workers is not None
+                else get_default_workers(),
                 quiet=quiet,
                 git_config_mode=git_config_mode,
                 update_method=normalized_update_method,
@@ -540,6 +543,8 @@ async def process_single_pr(
                         pullRequest(number: $number) {
                             number
                             title
+                            state
+                            merged
                             mergeable
                             mergeStateStatus
                             commits(last: 1) {
@@ -581,6 +586,25 @@ async def process_single_pr(
                 if not pr_data:
                     console.print("[red]Error:[/red] Could not fetch PR data")
                     raise typer.Exit(1)
+
+                # Check if PR is closed
+                pr_state = pr_data.get("state", "").upper()
+                if pr_state != "OPEN":
+                    # Check if it was merged
+                    is_merged = pr_data.get("merged", False)
+                    state_display = (
+                        "merged"
+                        if is_merged
+                        else (pr_state.lower() if pr_state else "closed")
+                    )
+                    console.print(
+                        f"[yellow]ℹ️  Pull request #{pr_number} is {state_display} and cannot be processed[/yellow]"
+                    )
+                    if not quiet:
+                        console.print(
+                            "[dim]Tip: This tool can only process open pull requests[/dim]"
+                        )
+                    sys.exit(0)
 
                 # Check if PR is blocked using dependamerge logic
                 blocked_scanner = BlockedPRScanner(
@@ -648,7 +672,9 @@ async def process_single_pr(
 
                             # Use different emoji based on dry-run status
                             emoji = "📂" if dry_run else "🔀"
-                            console.print(f"[orange1]{emoji} {display_path}[/orange1]")
+                            console.print(
+                                f"[orange1]{emoji} {display_path}[/orange1]"
+                            )
 
                             # Show diff if requested
                             if show_diff:
@@ -1007,7 +1033,9 @@ async def scan_and_fix_organization(
                                             )
 
                                         emoji = "🔀"
-                                        console.print(f"[orange1]{emoji} {display_path}[/orange1]")
+                                        console.print(
+                                            f"[orange1]{emoji} {display_path}[/orange1]"
+                                        )
 
                                         # Always show diff in dry-run mode
                                         diff_output = modification.diff
@@ -1145,7 +1173,9 @@ async def scan_and_fix_organization(
                                             )
 
                                         emoji = "🔀"
-                                        console.print(f"[orange1]{emoji} {display_path}[/orange1]")
+                                        console.print(
+                                            f"[orange1]{emoji} {display_path}[/orange1]"
+                                        )
 
                                         if show_diff:
                                             diff_output = modification.diff
