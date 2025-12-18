@@ -1,12 +1,20 @@
 ---
-# SPDX-FileCopyrightText: 2025 The Linux Foundation
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2025 The Linux Foundation
 
 version: 2
 updates:
   - package-ecosystem: "github-actions"
+    open-pull-requests-limit: 15
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "daily"
+    commit-message:
+      prefix: "Chore"
+  - package-ecosystem: "uv"
+    open-pull-requests-limit: 15
+    directory: "/"
+    schedule:
+      interval: "daily"
     commit-message:
       prefix: "Chore"

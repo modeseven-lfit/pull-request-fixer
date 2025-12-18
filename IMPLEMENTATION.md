@@ -5,7 +5,8 @@ SPDX-FileCopyrightText: 2025 The Linux Foundation
 
 # Implementation Guide
 
-This document describes the complete implementation of the `pull-request-fixer` tool.
+This document describes the complete implementation of the `pull-request-fixer`
+tool.
 
 ## Overview
 
