@@ -211,7 +211,7 @@ async def test_pr_blocking_logic() -> bool:
         from pull_request_fixer.github_client import GitHubClient
 
     # Create instances (without real GitHub client for testing)
-    pr_fixer_scanner = PRScanner(cast("GitHubClient", None))  # type: ignore[arg-type]
+    pr_fixer_scanner = PRScanner(cast("GitHubClient", cast(object, None)))  # type: ignore[arg-type]
     dependamerge_service = GitHubService(token="fake-token-for-testing")
 
     print("Testing PR blocking logic consistency\n")
