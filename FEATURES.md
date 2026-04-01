@@ -186,7 +186,7 @@ Fixed 1 file(s): action.yaml
 The commit now includes the fixes.
 
 ---
-*Automatically fixed by [pull-request-fixer](https://github.com/lfit/pull-request-fixer)*
+*Automatically fixed by [pull-request-fixer](https://github.com/lfreleng-actions/pull-request-fixer)*
 ```
 
 ### 10. Authentication
@@ -405,7 +405,7 @@ This project builds on patterns from:
 
 ## Support
 
-- **Issues**: <https://github.com/lfit/pull-request-fixer/issues>
-- **Documentation**: <https://github.com/lfit/pull-request-fixer>
+- **Issues**: <https://github.com/lfreleng-actions/pull-request-fixer/issues>
+- **Documentation**: <https://github.com/lfreleng-actions/pull-request-fixer>
 - **Changelog**: CHANGELOG.md
 - **Implementation**: IMPLEMENTATION.md

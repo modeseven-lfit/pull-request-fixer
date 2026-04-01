@@ -53,9 +53,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/lfit/pull-request-fixer"
-Repository = "https://github.com/lfit/pull-request-fixer.git"
-"Bug Tracker" = "https://github.com/lfit/pull-request-fixer/issues"
+Homepage = "https://github.com/lfreleng-actions/pull-request-fixer"
+Repository = "https://github.com/lfreleng-actions/pull-request-fixer.git"
+"Bug Tracker" = "https://github.com/lfreleng-actions/pull-request-fixer/issues"
 
 [project.scripts]
 pull-request-fixer = "pull_request_fixer.cli:cli"
