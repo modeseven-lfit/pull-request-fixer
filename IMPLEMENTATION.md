@@ -551,5 +551,5 @@ Apache-2.0
 
 For issues, questions, or feature requests:
 
-- GitHub Issues: <https://github.com/lfit/pull-request-fixer/issues>
-- Documentation: <https://github.com/lfit/pull-request-fixer/blob/main/README.md>
+- GitHub Issues: <https://github.com/lfreleng-actions/pull-request-fixer/issues>
+- Documentation: <https://github.com/lfreleng-actions/pull-request-fixer/blob/main/README.md>

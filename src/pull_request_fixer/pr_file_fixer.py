@@ -504,7 +504,7 @@ class PRFileFixer:
                     f"The commit has been amended with the fixes.\n\n"
                     f"---\n"
                     f"*Automatically fixed by [pull-request-fixer]"
-                    f"(https://github.com/lfit/pull-request-fixer)*"
+                    f"(https://github.com/lfreleng-actions/pull-request-fixer)*"
                 )
 
                 with suppress(Exception):
@@ -857,7 +857,7 @@ class PRFileFixer:
                     f"Changes applied via GitHub API.\n\n"
                     f"---\n"
                     f"*Automatically fixed by [pull-request-fixer]"
-                    f"(https://github.com/lfit/pull-request-fixer)*"
+                    f"(https://github.com/lfreleng-actions/pull-request-fixer)*"
                 )
 
                 try:

@@ -305,7 +305,7 @@ Automatically fixed pull request metadata:
 - **Pull request body** updated to match commit message
 
 ---
-*This fix was automatically applied by [pull-request-fixer](https://github.com/lfit/pull-request-fixer)*
+*This fix was automatically applied by [pull-request-fixer](https://github.com/lfreleng-actions/pull-request-fixer)*
 ```
 
 The comment includes the items that changed. For
@@ -575,7 +575,7 @@ If updates fail:
 ### Setup
 
 ```bash
-git clone https://github.com/lfit/pull-request-fixer.git
+git clone https://github.com/lfreleng-actions/pull-request-fixer.git
 cd pull-request-fixer
 uv venv
 source .venv/bin/activate
@@ -621,24 +621,24 @@ Apache-2.0
 ## Support
 
 - **Issues**:
-  <https://github.com/lfit/pull-request-fixer/issues>
+  <https://github.com/lfreleng-actions/pull-request-fixer/issues>
 - **Documentation**:
-  <https://github.com/lfit/pull-request-fixer/blob/main/IMPLEMENTATION.md>
+  <https://github.com/lfreleng-actions/pull-request-fixer/blob/main/IMPLEMENTATION.md>
 - **Changelog**:
-  <https://github.com/lfit/pull-request-fixer/blob/main/CHANGELOG.md>
+  <https://github.com/lfreleng-actions/pull-request-fixer/blob/main/CHANGELOG.md>
 
 ## Related Projects
 
 - [dependamerge](https://github.com/lfit/dependamerge) - Automatically merge
   automation PRs
-- [markdown-table-fixer](https://github.com/lfit/markdown-table-fixer) - Fix
-  markdown table formatting
+- [markdown-table-fixer][mtf-repo] - Fix markdown table formatting
 
 ## Acknowledgments
 
 This project uses patterns from:
 
-- [dependamerge](https://github.com/lfit/dependamerge) for efficient GitHub
-  organization scanning
-- [markdown-table-fixer](https://github.com/lfit/markdown-table-fixer) for
-  the initial codebase structure
+- [dependamerge](https://github.com/lfit/dependamerge) for efficient
+  GitHub organization scanning
+- [markdown-table-fixer][mtf-repo] for the initial codebase structure
+
+[mtf-repo]: https://github.com/lfreleng-actions/markdown-table-fixer
